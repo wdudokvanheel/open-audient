@@ -39,8 +39,18 @@ UI is a later phase.
 swift build
 swift test                              # pure encoding + logic tests
 OPEN_AUDIENT_DEVICE=1 swift test        # adds the hardware round-trip test
-swift run oa cut status|on|off|toggle   # CLI harness, mirrors id44cut
+
+swift run oa cut status|on|off|toggle   # the Cut switch (mirrors id44cut)
+swift run oa monitor dump               # read every mapped monitor control
+swift run oa get <unit> <sel> <len>     # raw GET_CUR (hex) — for protocol mapping
+swift run oa probe <unit>               # GET_CUR selector sweep
 ```
+
+The whole **monitor section** (unit `0x36`) is mapped and verified against
+hardware: Cut, Dim, Mono, Polarity, Talkback, Main/Cue volumes, Dim/Mono atten,
+source and output selection, trims. See [PROTOCOL.md](PROTOCOL.md) for the full
+selector tables, the device's USB unit topology, and the method for mapping the
+remaining controls (preamp, mixer faders/pans, routing).
 
 It uses Apple's modern **IOUSBHost** framework directly from Swift — no C shim. The
 kernel already exposes the iD44 as an `IOUSBHostDevice`, and control transfers go to
@@ -56,24 +66,28 @@ Layers, each isolated for testability and growth:
 | `DeviceDiscovery` | enum | IOKit matching → `io_service_t` |
 | `UACControlRequest` | struct | packs `(unit, selector, channel, interface)` → `wValue`/`wIndex` |
 | `Control` | protocol | declarative descriptor: address + value codec |
-| `CutControl` | struct | the one mapped control today |
-| `AudientDevice` | class | typed facade: `read`/`write`/`toggle` |
-
-**Adding a new control** (Dim, Mono, monitor volume, phantom, faders, …) means
-declaring one `Control` conformer with its `(unitID, selector, channel, length)` and
-value codec — no transport or facade changes:
+| `BoolControl`/`ByteControl`/`FixedQ88Control` | struct | reusable codecs (bool, uint8, signed Q8.8) |
+| `Monitor` | enum | namespace of all monitor controls on unit `0x36` |
+| `AudientDevice` | class | typed facade: `read`/`write`/`toggle` + raw `get`/`set` |
 
 ```swift
-struct DimControl: Control {
-    let name = "Dim"
-    var request: UACControlRequest { .init(unitID: 0x36, selector: /* TBD */, length: 1) }
-    func encode(_ on: Bool) -> [UInt8] { [on ? 1 : 0] }
-    func decode(_ bytes: [UInt8]) -> Bool { (bytes.first ?? 0) != 0 }
-}
+let device = try AudientDevice.openFirst()
+try device.write(Monitor.cut, true)          // mute speakers
+let volume = try device.read(Monitor.mainVolume)  // dB, Q8.8 decoded
+try device.write(Monitor.dim, true)
 ```
 
-The remaining work is reverse-engineering each control's tuple (see
-*Next Protocol Targets*) and dropping in a descriptor.
+**Adding a new control** means declaring one descriptor with its
+`(unitID, selector, channel, length)` and a codec — no transport or facade
+changes. Most are one line in `Monitor.swift` (or a new per-unit namespace):
+
+```swift
+static let dim = boolControl("Dim", 0x05)        // unit 0x36, selector 0x05
+static let mainVolume = fixedControl("Main Volume", 0x12)  // Q8.8, 2 bytes
+```
+
+Mapping the remaining units (preamp, mixer faders/pans, routing) is reverse-
+engineering each control's tuple — see [PROTOCOL.md](PROTOCOL.md).
 
 ## Basic Idea
 

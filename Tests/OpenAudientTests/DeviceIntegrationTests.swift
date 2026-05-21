@@ -16,7 +16,7 @@ final class DeviceIntegrationTests: XCTestCase {
 
     func testCutRoundTrip() throws {
         let device = try requireDevice()
-        let cut = CutControl()
+        let cut = Monitor.cut
 
         let original = try device.read(cut)
         addTeardownBlock { try? device.write(cut, original) }

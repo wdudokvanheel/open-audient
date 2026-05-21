@@ -25,7 +25,7 @@ final class AudientDeviceTests: XCTestCase {
         mock.stored = [0x01]
         let device = AudientDevice(transport: mock)
 
-        XCTAssertTrue(try device.read(CutControl()))
+        XCTAssertTrue(try device.read(Monitor.cut))
         XCTAssertEqual(mock.getCalls.first?.wIndex, 0x3600)
     }
 
@@ -33,7 +33,7 @@ final class AudientDeviceTests: XCTestCase {
         let mock = MockTransport()
         let device = AudientDevice(transport: mock)
 
-        try device.write(CutControl(), true)
+        try device.write(Monitor.cut, true)
 
         XCTAssertEqual(mock.setCalls.count, 1)
         XCTAssertEqual(mock.setCalls.first?.data, [0x01])
@@ -46,7 +46,7 @@ final class AudientDeviceTests: XCTestCase {
         mock.stored = [0x00]
         let device = AudientDevice(transport: mock)
 
-        let result = try device.toggle(CutControl())
+        let result = try device.toggle(Monitor.cut)
 
         XCTAssertTrue(result)
         XCTAssertEqual(mock.stored, [0x01])

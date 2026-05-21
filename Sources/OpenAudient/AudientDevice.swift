@@ -36,4 +36,21 @@ public final class AudientDevice {
     public func toggle<C: Control>(_ control: C) throws -> Bool where C.Value == Bool {
         try write(control, !(try read(control)))
     }
+
+    // MARK: Raw access (for diagnostics and protocol mapping)
+
+    /// Issue a raw GET_CUR. Returns the bytes read.
+    public func getRaw(unit: UInt8, selector: UInt8, channel: UInt8 = 0, length: UInt16) throws -> [UInt8] {
+        try transport.getCurrent(
+            UACControlRequest(unitID: unit, selector: selector, channel: channel, length: length)
+        )
+    }
+
+    /// Issue a raw SET_CUR.
+    public func setRaw(unit: UInt8, selector: UInt8, channel: UInt8 = 0, data: [UInt8]) throws {
+        try transport.setCurrent(
+            UACControlRequest(unitID: unit, selector: selector, channel: channel, length: UInt16(data.count)),
+            data: data
+        )
+    }
 }
