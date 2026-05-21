@@ -11,7 +11,6 @@ struct ContentView: View {
             if controller.isConnected {
                 Form {
                     monitorSection
-                    outputSection
                     if !controller.mixerLevelsDB.isEmpty { mixerSection }
                 }
                 .formStyle(.grouped)
@@ -87,12 +86,6 @@ struct ContentView: View {
             Toggle("Polarity", isOn: bind(\.polarity, controller.setPolarity))
             Toggle("Talkback", isOn: bind(\.talkback, controller.setTalkback))
             dBSlider("Speaker level", value: controller.mainVolumeDB, set: controller.setMainVolume)
-        }
-    }
-
-    private var outputSection: some View {
-        Section("Headphones") {
-            dBSlider("Level", value: controller.headphoneDB, set: controller.setHeadphoneVolume)
         }
     }
 

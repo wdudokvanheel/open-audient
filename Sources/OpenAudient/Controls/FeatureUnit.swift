@@ -24,7 +24,13 @@ public enum FeatureUnit {
     }
 }
 
-/// Headphone output (feature unit `0x0a`). Verified readable on the iD44.
+/// Output feature unit `0x0a`, channels 3/4.
+///
+/// NOTE: on the **iD44** the two headphone outputs have *physical* level dials
+/// and are not USB-controllable — writing here does not change them (confirmed on
+/// hardware). These controls are kept as generic feature-unit accessors and may
+/// map to software-controlled outputs on other iD models, but are not surfaced in
+/// the iD44 UI.
 public enum Headphones {
     public static let unit: UInt8 = 0x0A
     public static let leftVolume = FeatureUnit.volume(unit: unit, channel: 3)

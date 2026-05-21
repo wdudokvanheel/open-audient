@@ -61,9 +61,11 @@ Mapped and verified against hardware:
   volumes, Dim/Mono atten, source and output selection, trims.
 - **Mixer** (unit `0x3c`): per-channel crosspoint levels (dB).
 - **Routing** (unit `0x33`): per-output source selection.
-- **Headphones** (feature unit `0x0a`): volume and mute.
 - **Preamp** (feature unit `0x0b`): per-input gain, pad, phase (write-only;
   phase hardware-confirmed, gain/pad inferred on the same unit).
+
+The iD44's two **headphone** outputs use physical level dials and are not
+USB-controllable, so the app doesn't expose a software headphone slider.
 
 Still to map: phantom power (48V) and HPF. See [PROTOCOL.md](PROTOCOL.md)
 for the full selector tables, USB unit topology, and method. The mixer/routing/

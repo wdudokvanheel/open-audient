@@ -50,9 +50,6 @@ public enum CommandRunner {
         for c in Monitor.allSwitches { await row(c.name, onoff(try await device.read(c))) }
         for c in Monitor.allBytes    { await row(c.name, String(try await device.read(c))) }
         for c in Monitor.allLevels   { await row(c.name, String(format: "%.1f dB", try await device.read(c))) }
-        print("— Headphones —")
-        await row("HP Left",  String(format: "%.1f dB", try await device.read(Headphones.leftVolume)))
-        await row("HP Right", String(format: "%.1f dB", try await device.read(Headphones.rightVolume)))
         print("— Mixer levels —")
         for ch in 0..<UInt8(12) { await row("Mixer ch \(ch)", String(format: "%.1f dB", try await device.read(Mixer.level(channel: ch)))) }
         print("— Routing —")

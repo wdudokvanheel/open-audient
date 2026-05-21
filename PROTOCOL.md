@@ -104,7 +104,7 @@ only valid in a particular mode); the corresponding `SET_CUR` may still work.
   produces it with `fcvtzs w8, d0, #8`. Decoded readings match expected dB
   (Dim −15, Main −10).
 
-## Mixer, routing, headphones — verified
+## Mixer, routing, outputs — verified
 
 These were cross-referenced with the [MixiD](https://github.com/TheOnlyJoey/MixiD)
 Linux project (which targets the same iD44, PID 0x0005) and confirmed readable on
@@ -115,8 +115,8 @@ above, raising confidence in the whole map.
 |----------|------|----------|---------|-----|----------|
 | Mixer crosspoint level | `0x3c` | `0x01` | mixer channel | 2 | Q8.8 dB (`0x8000` = −128/min) |
 | Output route source | `0x33` | `0x06` | output 0…5 | 1 | source ID byte |
-| Headphone volume | `0x0a` | `0x02` | 3 (L), 4 (R) | 2 | Q8.8 dB |
-| Headphone mute | `0x0a` | `0x01` | 3, 4 | 1 | bool |
+| Output FU volume | `0x0a` | `0x02` | 3, 4 | 2 | Q8.8 dB |
+| Output FU mute | `0x0a` | `0x01` | 3, 4 | 1 | bool |
 
 Notes:
 - Mixer input fader L/R map to mixer channels `input×6` and `input×6+1` (MixiD
@@ -175,8 +175,10 @@ constants and must be found by probing or by RE'ing the parameter tables.
 
 ### Probe findings (GET_CUR sweep)
 
-- **`0x0a`** (input/HP feature unit): MUTE (`0x01`) and VOLUME (`0x02`) respond,
-  channel-addressed. Headphones are channels 3/4; other channels are inputs.
+- **`0x0a`** (output feature unit): MUTE (`0x01`) and VOLUME (`0x02`) respond,
+  channel-addressed. Note: the iD44's two headphone outputs are *physical* (front-
+  panel dials) and are **not** USB-controllable — writing `0x0a` ch3/4 does not
+  change them on the iD44.
 - **`0x32`** (input XU, 30 ch): only selector `0x06` responds at channel 0; the
   rest are channel-addressed (channel = input index) — candidate for preamp.
 - **`0x33`** (routing XU): selector `0x06` is channel-addressed by output (0…5),

@@ -25,7 +25,6 @@ public final class AudientController: ObservableObject {
     @Published public var polarity = false
     @Published public var talkback = false
     @Published public var mainVolumeDB: Double = 0
-    @Published public var headphoneDB: Double = 0
     @Published public var mixerLevelsDB: [Double] = []
 
     private var device: AudientDevice?
@@ -88,7 +87,6 @@ public final class AudientController: ObservableObject {
         polarity = (try? await device.read(Monitor.polarity)) ?? polarity
         talkback = (try? await device.read(Monitor.talkback)) ?? talkback
         mainVolumeDB = (try? await device.read(Monitor.mainVolume)) ?? mainVolumeDB
-        headphoneDB = (try? await device.read(Headphones.leftVolume)) ?? headphoneDB
 
         let channels = min(model?.micInputs ?? 0, 8)
         var levels: [Double] = []
@@ -106,15 +104,6 @@ public final class AudientController: ObservableObject {
     public func setPolarity(_ on: Bool)  { apply(Monitor.polarity, on) { self.polarity = on } }
     public func setTalkback(_ on: Bool)  { apply(Monitor.talkback, on) { self.talkback = on } }
     public func setMainVolume(_ db: Double) { apply(Monitor.mainVolume, db) { self.mainVolumeDB = db } }
-
-    public func setHeadphoneVolume(_ db: Double) {
-        headphoneDB = db
-        guard let device else { return }
-        Task {
-            _ = try? await device.write(Headphones.leftVolume, db)
-            _ = try? await device.write(Headphones.rightVolume, db)
-        }
-    }
 
     public func setMixerLevel(channel: Int, db: Double) {
         if channel < mixerLevelsDB.count { mixerLevelsDB[channel] = db }
