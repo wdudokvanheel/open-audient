@@ -104,28 +104,44 @@ only valid in a particular mode); the corresponding `SET_CUR` may still work.
   produces it with `fcvtzs w8, d0, #8`. Decoded readings match expected dB
   (Dim −15, Main −10).
 
-## Remaining controls — not yet mapped (need probing)
+## Remaining controls — not statically mappable; need probing
 
-These do not use simple inline selectors and require live probing
-(`oa probe`, `oa get`, `oa set`) to confirm unit + selector + encoding:
+Unlike the monitor unit, the input/output/mixer/routing controls do **not** use
+simple inline selectors:
 
-- **Preamp** (gain, phantom/48V, pad, HPF, polarity): the input model calls
-  standard UAC **feature-unit** controls — e.g. `UacFeatureUnit::setInputGain`,
-  `getChannelControlIsPresent(channel, control=0x300000)` — on the input feature
-  unit (`0x0a`), not an Audient XU.
-- **Mixer faders / pans** (`MixerNode::setVolumeDB`/`setPan`): the model only
-  updates state and notifies JUCE listeners; a separate sync layer pushes to the
-  mixer units (`0x3c`/`0x3d`) or routing XU (`0x33`). Crosspoint addressing TBD.
+- **Preamp** (gain, phantom/48V, pad, HPF, polarity, routing): `InputChannelModel`
+  setters call `InputControlModel::setParameter(InputControlParameter, channel,
+  value)` (param enum: HPF=9, Routing=8, …) — which builds a **juce::String key**
+  and dispatches through a named-parameter / OSC bus (`InputControlModel::
+  setOSCSender` exists), not a direct USB call. Gain/pad also touch standard UAC
+  **feature-unit** controls (`UacFeatureUnit::setInputGain`,
+  `getChannelControlIsPresent(channel, control=0x300000)`) on input feature unit
+  `0x0a`.
+- **Mixer faders / pans** (`MixerNode::setVolumeDB`/`setPan`): only update state +
+  notify JUCE listeners; a separate sync layer pushes to the mixer units
+  (`0x3c`/`0x3d`) or routing XU (`0x33`).
 - **Routing** (`UacXUAudientRoutingMatrix::setRouteSource(unit, index, source)`):
-  selector fixed inside the XU; index is the channel byte. Unit `0x32`/`0x33` TBD.
-- **Input/Output/System control** (`setParameter(unit, selector, channel, value)`):
-  generic; selectors live in the `*Model` callers. Unit `0x32`/`0x33` TBD.
+  selector fixed inside the XU; index is the channel byte; unit `0x32`/`0x33`.
 
-### Method to map a new control
+So these route through a string-keyed parameter system + definition tables. The
+practical way to map them is empirical probing, not static disassembly.
 
-1. Find the iD.app model setter and its `UacXUAudient…::setParameter` /
-   `sendSetRequest` call; note selector, channel, length, encoding.
-2. Pick the candidate unit (`0x32` or `0x33`) from the topology above.
-3. Confirm on hardware: `oa get <unit> <selector> <len>` should return data (not
-   stall). Toggle in iD.app and re-read to see the value change, or
-   `oa set <unit> <selector> <channel> <bytes>` and verify audibly, then restore.
+### Probe findings (GET_CUR sweep, channel 0)
+
+- **`0x0a`** (input feature unit): selector `0x01` (MUTE) and `0x02` (VOLUME)
+  respond — standard UAC feature-unit controls. Per-input values live in
+  channels 1…N; preamp gain is a separate custom path.
+- **`0x32`** (input XU, 30 ch): only selector `0x06` responds at channel 0; the
+  rest are channel-addressed (channel = input index).
+- **`0x33`** (output/routing XU, 24 ch): every selector returns a constant
+  `0x3b` at channel 0 — i.e. channel 0 is not a real address here; routes are
+  channel-addressed.
+
+### Method to map a remaining control (empirical)
+
+1. In iD.app, change one control to a known value, then quit iD.app.
+2. `oa probe <unit>` / `oa get <unit> <sel> <len> <channel>` and look for the
+   value; sweep the channel byte (input/output index) as well as the selector.
+3. Confirm with `oa set <unit> <sel> <channel> <bytes>` (verify audibly, then
+   restore). Feature-unit controls (`0x0a`) use selector 1 = mute, 2 = volume,
+   channel = input number.
