@@ -3,7 +3,7 @@ import XCTest
 
 /// An in-memory transport that records traffic, so `AudientDevice` logic can be
 /// exercised without hardware.
-final class MockTransport: USBControlTransport {
+final class MockTransport: USBControlTransport, @unchecked Sendable {
     var stored: [UInt8] = [0x00]
     private(set) var setCalls: [(request: UACControlRequest, data: [UInt8])] = []
     private(set) var getCalls: [UACControlRequest] = []
@@ -20,20 +20,21 @@ final class MockTransport: USBControlTransport {
 }
 
 final class AudientDeviceTests: XCTestCase {
-    func testReadDecodesStoredBytes() throws {
+    func testReadDecodesStoredBytes() async throws {
         let mock = MockTransport()
         mock.stored = [0x01]
         let device = AudientDevice(transport: mock)
 
-        XCTAssertTrue(try device.read(Monitor.cut))
+        let value = try await device.read(Monitor.cut)
+        XCTAssertTrue(value)
         XCTAssertEqual(mock.getCalls.first?.wIndex, 0x3600)
     }
 
-    func testWriteSendsEncodedBytesToCorrectAddress() throws {
+    func testWriteSendsEncodedBytesToCorrectAddress() async throws {
         let mock = MockTransport()
         let device = AudientDevice(transport: mock)
 
-        try device.write(Monitor.cut, true)
+        try await device.write(Monitor.cut, true)
 
         XCTAssertEqual(mock.setCalls.count, 1)
         XCTAssertEqual(mock.setCalls.first?.data, [0x01])
@@ -41,12 +42,12 @@ final class AudientDeviceTests: XCTestCase {
         XCTAssertEqual(mock.setCalls.first?.request.wIndex, 0x3600)
     }
 
-    func testToggleReadsThenWritesInverse() throws {
+    func testToggleReadsThenWritesInverse() async throws {
         let mock = MockTransport()
         mock.stored = [0x00]
         let device = AudientDevice(transport: mock)
 
-        let result = try device.toggle(Monitor.cut)
+        let result = try await device.toggle(Monitor.cut)
 
         XCTAssertTrue(result)
         XCTAssertEqual(mock.stored, [0x01])

@@ -8,7 +8,7 @@ import IOUSBHost
 /// kernel's AppleUSBAudio driver — so CoreAudio keeps streaming while we read
 /// and write mixer/monitor state. The Audient iD app must be quit, as it
 /// otherwise holds the control endpoint itself.
-public final class IOUSBHostTransport: USBControlTransport {
+public final class IOUSBHostTransport: USBControlTransport, @unchecked Sendable {
     private let device: IOUSBHostDevice
     private let timeout: TimeInterval
 

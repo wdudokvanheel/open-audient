@@ -3,7 +3,7 @@
 /// Abstracting the transport keeps the IOKit/IOUSBHost specifics out of the
 /// control model and lets tests drive `AudientDevice` with an in-memory mock.
 /// A C/IOUSBLib backend could be dropped in behind this protocol unchanged.
-public protocol USBControlTransport {
+public protocol USBControlTransport: Sendable {
     /// Issue a GET_CUR for `request` and return the bytes read.
     func getCurrent(_ request: UACControlRequest) throws -> [UInt8]
 

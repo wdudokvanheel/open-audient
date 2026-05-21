@@ -1,56 +1,79 @@
-/// High-level facade over an Audient device.
-///
-/// Reads and writes are expressed in terms of typed `Control` descriptors, so
-/// callers never touch raw bytes or USB request fields:
-///
-///     let device = try AudientDevice.openFirst()
-///     let muted = try device.read(CutControl())
-///     try device.write(CutControl(), true)
-///     try device.toggle(CutControl())
-public final class AudientDevice {
-    public let transport: USBControlTransport
+import Foundation
 
-    public init(transport: USBControlTransport) {
+/// An open connection to an Audient device.
+///
+/// All control transfers are serialized on a private background queue, so calls
+/// never block the caller's thread (e.g. SwiftUI's main actor). Reads and writes
+/// are expressed in terms of typed `Control` descriptors:
+///
+///     let device = try await AudientDevice.openFirst()
+///     try await device.write(Monitor.cut, true)
+///     let volume = try await device.read(Monitor.mainVolume)
+///
+/// The type is `@unchecked Sendable`: every access to the underlying transport
+/// goes through the serial queue, which provides the required synchronization.
+public final class AudientDevice: @unchecked Sendable {
+    /// The model this connection is talking to.
+    public let model: DeviceModel
+
+    private let transport: USBControlTransport
+    private let queue = DispatchQueue(label: "com.openaudient.device", qos: .userInitiated)
+
+    public init(transport: USBControlTransport, model: DeviceModel = .iD44) {
         self.transport = transport
+        self.model = model
     }
 
-    /// Discover and open the first connected device of the given identity.
-    public static func openFirst(_ identifier: USBIdentifier = .iD44) throws -> AudientDevice {
-        AudientDevice(transport: try IOUSBHostTransport(identifier: identifier))
+    /// Discover and open the first connected device of the given model.
+    public static func openFirst(_ model: DeviceModel = .iD44) async throws -> AudientDevice {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(with: Result {
+                    AudientDevice(transport: try IOUSBHostTransport(identifier: model.identifier), model: model)
+                })
+            }
+        }
     }
+
+    // MARK: Typed controls
 
     /// Read the current value of a control.
-    public func read<C: Control>(_ control: C) throws -> C.Value {
-        control.decode(try transport.getCurrent(control.request))
+    public func read<C: Control>(_ control: C) async throws -> C.Value {
+        try await perform { control.decode(try $0.getCurrent(control.request)) }
     }
 
-    /// Write a value to a control. Returns the value written for chaining.
+    /// Write a value to a control. Returns the value written, for chaining.
     @discardableResult
-    public func write<C: Control>(_ control: C, _ value: C.Value) throws -> C.Value {
-        try transport.setCurrent(control.request, data: control.encode(value))
-        return value
+    public func write<C: Control>(_ control: C, _ value: C.Value) async throws -> C.Value {
+        try await perform { try $0.setCurrent(control.request, data: control.encode(value)); return value }
     }
 
     /// Flip a boolean control and return its new value.
     @discardableResult
-    public func toggle<C: Control>(_ control: C) throws -> Bool where C.Value == Bool {
-        try write(control, !(try read(control)))
+    public func toggle<C: Control>(_ control: C) async throws -> Bool where C.Value == Bool {
+        try await write(control, !(try await read(control)))
     }
 
-    // MARK: Raw access (for diagnostics and protocol mapping)
+    // MARK: Raw access (diagnostics / protocol mapping)
 
-    /// Issue a raw GET_CUR. Returns the bytes read.
-    public func getRaw(unit: UInt8, selector: UInt8, channel: UInt8 = 0, length: UInt16) throws -> [UInt8] {
-        try transport.getCurrent(
-            UACControlRequest(unitID: unit, selector: selector, channel: channel, length: length)
-        )
+    public func getRaw(unit: UInt8, selector: UInt8, channel: UInt8 = 0, length: UInt16) async throws -> [UInt8] {
+        try await perform {
+            try $0.getCurrent(UACControlRequest(unitID: unit, selector: selector, channel: channel, length: length))
+        }
     }
 
-    /// Issue a raw SET_CUR.
-    public func setRaw(unit: UInt8, selector: UInt8, channel: UInt8 = 0, data: [UInt8]) throws {
-        try transport.setCurrent(
-            UACControlRequest(unitID: unit, selector: selector, channel: channel, length: UInt16(data.count)),
-            data: data
-        )
+    public func setRaw(unit: UInt8, selector: UInt8, channel: UInt8 = 0, data: [UInt8]) async throws {
+        try await perform {
+            try $0.setCurrent(UACControlRequest(unitID: unit, selector: selector, channel: channel, length: UInt16(data.count)), data: data)
+        }
+    }
+
+    /// Run a transport operation on the device's serial queue.
+    private func perform<T>(_ body: @escaping (USBControlTransport) throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async { [transport] in
+                continuation.resume(with: Result { try body(transport) })
+            }
+        }
     }
 }

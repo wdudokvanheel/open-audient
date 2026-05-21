@@ -6,25 +6,27 @@ import XCTest
 ///
 ///     OPEN_AUDIENT_DEVICE=1 swift test
 final class DeviceIntegrationTests: XCTestCase {
-    private func requireDevice() throws -> AudientDevice {
+    private func requireDevice() async throws -> AudientDevice {
         try XCTSkipUnless(
             ProcessInfo.processInfo.environment["OPEN_AUDIENT_DEVICE"] == "1",
             "Set OPEN_AUDIENT_DEVICE=1 to run hardware tests (quit the Audient iD app first)."
         )
-        return try AudientDevice.openFirst()
+        return try await AudientDevice.openFirst()
     }
 
-    func testCutRoundTrip() throws {
-        let device = try requireDevice()
+    func testCutRoundTrip() async throws {
+        let device = try await requireDevice()
         let cut = Monitor.cut
 
-        let original = try device.read(cut)
-        addTeardownBlock { try? device.write(cut, original) }
+        let original = try await device.read(cut)
+        addTeardownBlock { try? await device.write(cut, original) }
 
-        try device.write(cut, !original)
-        XCTAssertEqual(try device.read(cut), !original, "device should reflect the written value")
+        try await device.write(cut, !original)
+        let flipped = try await device.read(cut)
+        XCTAssertEqual(flipped, !original, "device should reflect the written value")
 
-        try device.write(cut, original)
-        XCTAssertEqual(try device.read(cut), original, "device should restore the original value")
+        try await device.write(cut, original)
+        let restored = try await device.read(cut)
+        XCTAssertEqual(restored, original, "device should restore the original value")
     }
 }
