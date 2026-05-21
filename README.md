@@ -53,8 +53,10 @@ Mapped and verified against hardware:
 - **Mixer** (unit `0x3c`): per-channel crosspoint levels (dB).
 - **Routing** (unit `0x33`): per-output source selection.
 - **Headphones** (feature unit `0x0a`): volume and mute.
+- **Preamp** (feature unit `0x0b`): per-input gain, pad, phase (write-only;
+  phase hardware-confirmed, gain/pad inferred on the same unit).
 
-Still to map: preamp (phantom/48V, pad, gain, HPF). See [PROTOCOL.md](PROTOCOL.md)
+Still to map: phantom power (48V) and HPF. See [PROTOCOL.md](PROTOCOL.md)
 for the full selector tables, USB unit topology, and method. The mixer/routing/
 headphone mappings were cross-checked against the
 [MixiD](https://github.com/TheOnlyJoey/MixiD) Linux project, which also

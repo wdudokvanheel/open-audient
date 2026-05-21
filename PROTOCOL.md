@@ -133,30 +133,38 @@ Notes:
 
 Still need probing/RE; not present in MixiD or the monitor unit:
 
-- **Preamp**: phantom power (48V), pad, input gain, HPF, phase. The iD app
-  *does* write these (so they are controllable), but they appear to be
-  **write-only** over USB — `GET_CUR` stalls on every candidate unit/channel,
-  just like HW-Monitor / Cue volumes on the monitor unit. Selectors recovered
-  from `UacFeatureUnit` (standard UAC2 feature-unit controls), channel = input:
+### Preamp — input feature unit `0x0b` (write-only)
 
-  | Control | selector | len | encoding | source |
-  |---------|----------|-----|----------|--------|
-  | Input gain | `0x0b` | 2 | Q8.8 dB (`fcvtzs d0,#8`) | `setInputGain` |
-  | Input pad | `0x0c` | 1 | bool | UAC2 std (gain-pad) |
-  | Phase/polarity | `0x0d` | 1 | bool | `setPhaseInverter` |
+Per-input preamp controls live on feature unit **`0x0b`**, channel = input
+(1-based; channel 0 = master). They are **write-only** over USB — `GET_CUR`
+stalls — so the iD app caches their state. The unit and the phase selector were
+**confirmed on hardware** (a `SET_CUR` ACKs on `0x0b`, stalls on `0x32`), and
+match MixiD's `set_phase_state`. Selectors are UAC2-standard, recovered from
+`UacLib::UacFeatureUnit`:
 
-  The **unit ID** for the analogue-input feature unit is unconfirmed (no feature
-  unit sources from input terminal `0x02` in the descriptor; the inputs go
-  terminal `0x02` → input XU `0x32`, so these are likely vendor controls on
-  `0x32`). Phantom/48V and HPF are not standard UAC controls; their selectors
-  live in `InputControlModel::setInputBitState` (a string-keyed parameter, not an
-  inline constant).
+| Control | unit | selector | len | encoding | status |
+|---------|------|----------|-----|----------|--------|
+| Phase/polarity | `0x0b` | `0x0d` | 1 | bool | hardware-confirmed |
+| Input gain | `0x0b` | `0x0b` | 2 | Q8.8 dB (`fcvtzs d0,#8`) | inferred (same FU) |
+| Input pad | `0x0b` | `0x0c` | 1 | bool | inferred (same FU) |
 
-  To confirm: **SET-probe** — a `SET_CUR` to a valid (unit, selector, channel)
-  succeeds while an invalid one stalls, so which writes ACK identifies the
-  mapping without needing to read back. Then verify the physical effect (e.g. the
-  48V indicator, or audibly). Writes change preamp state, so do this
-  deliberately and mind what is plugged in before toggling 48V.
+Gain and pad were not individually exercised on hardware because writing them
+changes input levels (avoided while sensitive gear was connected); they share
+feature unit `0x0b` by UAC2 convention.
+
+### Still unmapped
+
+- **Phantom power (48V)** and **HPF** are not standard UAC controls; their
+  selectors live in `InputControlModel::setInputBitState` (a string-keyed
+  parameter, not an inline constant). Map by SET-probing candidate selectors on
+  `0x0b`/`0x32` and confirming the physical effect (the iD44's 48V indicator).
+  ⚠️ Phantom power can damage ribbon mics / some line gear — only toggle 48V with
+  nothing sensitive connected.
+
+How to SET-probe safely: a `SET_CUR` to a valid (unit, selector, channel) ACKs
+while an invalid one stalls, so which writes succeed identifies the mapping
+without reading back. Prefer phase (selector `0x0d`, value `0x00`) as the probe —
+it neither changes level nor sends phantom.
 
 Why the preamp is harder than the monitor unit: in iD.app, `InputChannelModel`
 setters call `InputControlModel::setParameter(InputControlParameter, channel,

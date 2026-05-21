@@ -30,6 +30,21 @@ final class MappingTests: XCTestCase {
         XCTAssertEqual(c.request.length, 1)
     }
 
+    func testPreampAddressing() {
+        // Phase selector 0x0d on feature unit 0x0b, channel = input (confirmed).
+        let phase = Preamp.phase(input: 2)
+        XCTAssertEqual(phase.request.unitID, 0x0B)
+        XCTAssertEqual(phase.request.wValue, 0x0D02, "phase selector 0x0d, channel 2")
+        XCTAssertEqual(phase.request.length, 1)
+
+        let gain = Preamp.gain(input: 1)
+        XCTAssertEqual(gain.request.wValue, 0x0B01, "gain selector 0x0b, channel 1")
+        XCTAssertEqual(gain.request.length, 2)
+        XCTAssertEqual(gain.encode(0.0), [0x00, 0x00])
+
+        XCTAssertEqual(Preamp.pad(input: 3).request.wValue, 0x0C03, "pad selector 0x0c, channel 3")
+    }
+
     func testHeadphoneFeatureUnitAddressing() {
         XCTAssertEqual(Headphones.leftVolume.request.unitID, 0x0A)
         XCTAssertEqual(Headphones.leftVolume.request.wValue, 0x0203, "VOLUME selector, channel 3")
