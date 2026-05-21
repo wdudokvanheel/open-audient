@@ -29,22 +29,31 @@ There is also a script-friendly wrapper:
 
 Audient iD.app should be quit before using the tool. The tool does not need iD.app to be installed or running.
 
-## Swift Library (`OpenAudient`)
+## App (`OpenAudient`)
 
-A native Swift Package that controls the device, built to grow into a full SwiftUI
-mixer app. The control library is complete and verified against real hardware; the
-UI is a later phase.
+A native SwiftUI macOS app that controls the device, with a built-in headless
+command-line mode in the same binary. Built on the `OpenAudient` Swift package
+(an async, hot-plug-aware control library), verified against real hardware.
 
 ```sh
 swift build
-swift test                              # pure encoding + logic tests
-OPEN_AUDIENT_DEVICE=1 swift test        # adds the hardware round-trip test
+swift run oa                             # launch the GUI
 
-swift run oa cut status|on|off|toggle   # the Cut switch (mirrors id44cut)
+# the same binary, headless:
+swift run oa cut status|on|off|toggle    # the Cut switch (mirrors id44cut)
 swift run oa dump                        # read the whole device
-swift run oa get <unit> <sel> <len>     # raw GET_CUR (hex) — for protocol mapping
-swift run oa probe <unit>               # GET_CUR selector sweep
+swift run oa list                        # connected iD models
+swift run oa watch                       # live connect/disconnect events
+swift run oa get <unit> <sel> <len>      # raw GET_CUR (hex) — for protocol mapping
+swift run oa probe <unit>                # GET_CUR selector sweep
+
+swift test                               # pure encoding + logic tests
+OPEN_AUDIENT_DEVICE=1 swift test         # adds the hardware round-trip test
 ```
+
+The GUI auto-connects when an iD is plugged in (hot-plug aware) and mirrors the
+device's readable state. The Audient iD app must be quit — it holds exclusive
+control of the device.
 
 Mapped and verified against hardware:
 

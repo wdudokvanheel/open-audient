@@ -6,7 +6,9 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [
         .library(name: "OpenAudient", targets: ["OpenAudient"]),
-        .executable(name: "oa", targets: ["oa"]),
+        // The app: launch with no arguments for the GUI, or pass a subcommand
+        // (e.g. `oa cut on`) to run headless.
+        .executable(name: "oa", targets: ["OpenAudientApp"]),
     ],
     targets: [
         .target(
@@ -17,7 +19,7 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "oa",
+            name: "OpenAudientApp",
             dependencies: ["OpenAudient"]
         ),
         .testTarget(
