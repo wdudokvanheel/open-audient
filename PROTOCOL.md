@@ -104,38 +104,58 @@ only valid in a particular mode); the corresponding `SET_CUR` may still work.
   produces it with `fcvtzs w8, d0, #8`. Decoded readings match expected dB
   (Dim −15, Main −10).
 
-## Remaining controls — not statically mappable; need probing
+## Mixer, routing, headphones — verified
 
-Unlike the monitor unit, the input/output/mixer/routing controls do **not** use
-simple inline selectors:
+These were cross-referenced with the [MixiD](https://github.com/TheOnlyJoey/MixiD)
+Linux project (which targets the same iD44, PID 0x0005) and confirmed readable on
+hardware (`oa dump`). MixiD also independently reproduces every monitor selector
+above, raising confidence in the whole map.
 
-- **Preamp** (gain, phantom/48V, pad, HPF, polarity, routing): `InputChannelModel`
-  setters call `InputControlModel::setParameter(InputControlParameter, channel,
-  value)` (param enum: HPF=9, Routing=8, …) — which builds a **juce::String key**
-  and dispatches through a named-parameter / OSC bus (`InputControlModel::
-  setOSCSender` exists), not a direct USB call. Gain/pad also touch standard UAC
-  **feature-unit** controls (`UacFeatureUnit::setInputGain`,
-  `getChannelControlIsPresent(channel, control=0x300000)`) on input feature unit
-  `0x0a`.
-- **Mixer faders / pans** (`MixerNode::setVolumeDB`/`setPan`): only update state +
-  notify JUCE listeners; a separate sync layer pushes to the mixer units
-  (`0x3c`/`0x3d`) or routing XU (`0x33`).
-- **Routing** (`UacXUAudientRoutingMatrix::setRouteSource(unit, index, source)`):
-  selector fixed inside the XU; index is the channel byte; unit `0x32`/`0x33`.
+| Function | unit | selector | channel | len | encoding |
+|----------|------|----------|---------|-----|----------|
+| Mixer crosspoint level | `0x3c` | `0x01` | mixer channel | 2 | Q8.8 dB (`0x8000` = −128/min) |
+| Output route source | `0x33` | `0x06` | output 0…5 | 1 | source ID byte |
+| Headphone volume | `0x0a` | `0x02` | 3 (L), 4 (R) | 2 | Q8.8 dB |
+| Headphone mute | `0x0a` | `0x01` | 3, 4 | 1 | bool |
 
-So these route through a string-keyed parameter system + definition tables. The
-practical way to map them is empirical probing, not static disassembly.
+Notes:
+- Mixer input fader L/R map to mixer channels `input×6` and `input×6+1` (MixiD
+  `set_channel_volume`). A live read showed channels 0/1 at −3.6 dB, 8/9 active,
+  the rest at −128 dB (muted) — i.e. real mixer state.
+- All level controls are UAC2-standard signed Q8.8 dB (verified across monitor,
+  mixer and headphone units). MixiD's linear `float→u16` mapping is its own
+  approximation; this project follows the iD app's Q8.8.
+- MixiD maps a per-channel **phase** to feature unit `0x0b`, selector `0x0d`,
+  channel `1+n`, but `GET_CUR` stalls there on this iD44 (MixiD flags it
+  unverified), so it is **not** implemented yet.
 
-### Probe findings (GET_CUR sweep, channel 0)
+## Remaining controls — not yet mapped
 
-- **`0x0a`** (input feature unit): selector `0x01` (MUTE) and `0x02` (VOLUME)
-  respond — standard UAC feature-unit controls. Per-input values live in
-  channels 1…N; preamp gain is a separate custom path.
+Still need probing/RE; not present in MixiD or the monitor unit:
+
+- **Preamp**: phantom power (48V), pad, input gain, HPF. The iD app routes these
+  through standard UAC **feature-unit** controls plus a string-keyed parameter /
+  OSC bus (`UacFeatureUnit::setInputGain`,
+  `getChannelControlIsPresent(channel, control=0x300000)` on input feature unit
+  `0x0a`), so they need empirical probing (sweep selector × channel) or RE of the
+  parameter tables.
+- **Per-channel phase/polarity**: see the MixiD note above (unverified).
+
+Why the preamp is harder than the monitor unit: in iD.app, `InputChannelModel`
+setters call `InputControlModel::setParameter(InputControlParameter, channel,
+value)` (param enum: HPF=9, Routing=8, …), which builds a **juce::String key** and
+dispatches through a named-parameter / OSC bus (`InputControlModel::setOSCSender`
+exists) rather than a direct USB call. So preamp selectors are not inline
+constants and must be found by probing or by RE'ing the parameter tables.
+
+### Probe findings (GET_CUR sweep)
+
+- **`0x0a`** (input/HP feature unit): MUTE (`0x01`) and VOLUME (`0x02`) respond,
+  channel-addressed. Headphones are channels 3/4; other channels are inputs.
 - **`0x32`** (input XU, 30 ch): only selector `0x06` responds at channel 0; the
-  rest are channel-addressed (channel = input index).
-- **`0x33`** (output/routing XU, 24 ch): every selector returns a constant
-  `0x3b` at channel 0 — i.e. channel 0 is not a real address here; routes are
-  channel-addressed.
+  rest are channel-addressed (channel = input index) — candidate for preamp.
+- **`0x33`** (routing XU): selector `0x06` is channel-addressed by output (0…5),
+  returning the source ID per output — the routing matrix (see table above).
 
 ### Method to map a remaining control (empirical)
 

@@ -59,6 +59,23 @@ do {
             fail("unknown monitor subcommand: \(sub) (try: dump)", code: 1)
         }
 
+    case "dump":
+        let device = open()
+        func row(_ name: String, _ value: @autoclosure () throws -> String) {
+            print("\(name.padding(toLength: 22, withPad: " ", startingAt: 0)) \((try? value()) ?? "n/a")")
+        }
+        print("— Monitor —")
+        for c in Monitor.allSwitches { row(c.name, onoff(try device.read(c))) }
+        for c in Monitor.allBytes    { row(c.name, String(try device.read(c))) }
+        for c in Monitor.allLevels   { row(c.name, String(format: "%.1f dB", try device.read(c))) }
+        print("— Headphones —")
+        row("HP Left",  String(format: "%.1f dB", try device.read(Headphones.leftVolume)))
+        row("HP Right", String(format: "%.1f dB", try device.read(Headphones.rightVolume)))
+        print("— Mixer levels —")
+        for ch: UInt8 in 0..<12 { row("Mixer ch \(ch)", String(format: "%.1f dB", try device.read(Mixer.level(channel: ch)))) }
+        print("— Routing —")
+        for out: UInt8 in 0..<6 { row("Output \(out)", String(format: "0x%02x", try device.read(Routing.source(output: out)))) }
+
     case "get":
         guard arguments.count >= 4, let u = hex(arguments[1]), let s = hex(arguments[2]), let l = hex(arguments[3]) else {
             fail("usage: oa get <unit> <selector> <len> [channel]", code: 1)

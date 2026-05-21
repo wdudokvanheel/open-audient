@@ -41,16 +41,24 @@ swift test                              # pure encoding + logic tests
 OPEN_AUDIENT_DEVICE=1 swift test        # adds the hardware round-trip test
 
 swift run oa cut status|on|off|toggle   # the Cut switch (mirrors id44cut)
-swift run oa monitor dump               # read every mapped monitor control
+swift run oa dump                        # read the whole device
 swift run oa get <unit> <sel> <len>     # raw GET_CUR (hex) — for protocol mapping
 swift run oa probe <unit>               # GET_CUR selector sweep
 ```
 
-The whole **monitor section** (unit `0x36`) is mapped and verified against
-hardware: Cut, Dim, Mono, Polarity, Talkback, Main/Cue volumes, Dim/Mono atten,
-source and output selection, trims. See [PROTOCOL.md](PROTOCOL.md) for the full
-selector tables, the device's USB unit topology, and the method for mapping the
-remaining controls (preamp, mixer faders/pans, routing).
+Mapped and verified against hardware:
+
+- **Monitor** (unit `0x36`): Cut, Dim, Mono, Polarity, Talkback, Main/Cue
+  volumes, Dim/Mono atten, source and output selection, trims.
+- **Mixer** (unit `0x3c`): per-channel crosspoint levels (dB).
+- **Routing** (unit `0x33`): per-output source selection.
+- **Headphones** (feature unit `0x0a`): volume and mute.
+
+Still to map: preamp (phantom/48V, pad, gain, HPF). See [PROTOCOL.md](PROTOCOL.md)
+for the full selector tables, USB unit topology, and method. The mixer/routing/
+headphone mappings were cross-checked against the
+[MixiD](https://github.com/TheOnlyJoey/MixiD) Linux project, which also
+independently confirms the monitor selectors.
 
 It uses Apple's modern **IOUSBHost** framework directly from Swift — no C shim. The
 kernel already exposes the iD44 as an `IOUSBHostDevice`, and control transfers go to
