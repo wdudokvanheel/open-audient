@@ -133,13 +133,30 @@ Notes:
 
 Still need probing/RE; not present in MixiD or the monitor unit:
 
-- **Preamp**: phantom power (48V), pad, input gain, HPF. The iD app routes these
-  through standard UAC **feature-unit** controls plus a string-keyed parameter /
-  OSC bus (`UacFeatureUnit::setInputGain`,
-  `getChannelControlIsPresent(channel, control=0x300000)` on input feature unit
-  `0x0a`), so they need empirical probing (sweep selector × channel) or RE of the
-  parameter tables.
-- **Per-channel phase/polarity**: see the MixiD note above (unverified).
+- **Preamp**: phantom power (48V), pad, input gain, HPF, phase. The iD app
+  *does* write these (so they are controllable), but they appear to be
+  **write-only** over USB — `GET_CUR` stalls on every candidate unit/channel,
+  just like HW-Monitor / Cue volumes on the monitor unit. Selectors recovered
+  from `UacFeatureUnit` (standard UAC2 feature-unit controls), channel = input:
+
+  | Control | selector | len | encoding | source |
+  |---------|----------|-----|----------|--------|
+  | Input gain | `0x0b` | 2 | Q8.8 dB (`fcvtzs d0,#8`) | `setInputGain` |
+  | Input pad | `0x0c` | 1 | bool | UAC2 std (gain-pad) |
+  | Phase/polarity | `0x0d` | 1 | bool | `setPhaseInverter` |
+
+  The **unit ID** for the analogue-input feature unit is unconfirmed (no feature
+  unit sources from input terminal `0x02` in the descriptor; the inputs go
+  terminal `0x02` → input XU `0x32`, so these are likely vendor controls on
+  `0x32`). Phantom/48V and HPF are not standard UAC controls; their selectors
+  live in `InputControlModel::setInputBitState` (a string-keyed parameter, not an
+  inline constant).
+
+  To confirm: **SET-probe** — a `SET_CUR` to a valid (unit, selector, channel)
+  succeeds while an invalid one stalls, so which writes ACK identifies the
+  mapping without needing to read back. Then verify the physical effect (e.g. the
+  48V indicator, or audibly). Writes change preamp state, so do this
+  deliberately and mind what is plugged in before toggling 48V.
 
 Why the preamp is harder than the monitor unit: in iD.app, `InputChannelModel`
 setters call `InputControlModel::setParameter(InputControlParameter, channel,
