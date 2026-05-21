@@ -12,6 +12,9 @@ import OpenAudient
 //
 // All numeric CLI args are hex. The Audient iD app must be quit.
 
+// Line-buffer stdout so streaming commands (watch) flush promptly even when piped.
+setvbuf(stdout, nil, _IOLBF, 0)
+
 func fail(_ message: String, code: Int32) -> Never {
     FileHandle.standardError.write(Data((message + "\n").utf8))
     exit(code)
@@ -60,6 +63,21 @@ do {
         for ch in 0..<UInt8(12) { await row("Mixer ch \(ch)", String(format: "%.1f dB", try await device.read(Mixer.level(channel: ch)))) }
         print("— Routing —")
         for out in 0..<UInt8(device.model.lineOutputs + 2) { await row("Output \(out)", String(format: "0x%02x", try await device.read(Routing.source(output: out)))) }
+
+    case "list":
+        let models = DeviceDiscovery.connectedModels()
+        if models.isEmpty { print("no Audient iD devices connected") }
+        for m in models { print("\(m.name)  PID 0x\(String(format: "%04x", m.productID))  \(m.totalInputs) in / \(m.totalOutputs) out\(m.isVerified ? "  [verified]" : "")") }
+
+    case "watch":
+        print("watching for device connect/disconnect (Ctrl-C to stop)…")
+        let monitor = DeviceMonitor()
+        for await event in monitor.events() {
+            switch event {
+            case .connected(let m): print("+ connected: \(m.name)")
+            case .disconnected(let m): print("- disconnected: \(m.name)")
+            }
+        }
 
     case "get":
         guard arguments.count >= 4, let u = hex(arguments[1]), let s = hex(arguments[2]), let l = hex(arguments[3]) else {

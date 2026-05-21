@@ -28,4 +28,28 @@ public enum DeviceDiscovery {
         }
         return service
     }
+
+    /// All currently-connected, recognised Audient iD models.
+    public static func connectedModels(vendorID: Int = 0x2708) -> [DeviceModel] {
+        // IOUSBHostDevice won't match on idVendor alone, so enumerate the class
+        // and filter by vendor.
+        var iterator: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOUSBHostDevice"), &iterator) == KERN_SUCCESS else {
+            return []
+        }
+        defer { IOObjectRelease(iterator) }
+
+        var models: [DeviceModel] = []
+        var service = IOIteratorNext(iterator)
+        while service != IO_OBJECT_NULL {
+            if DeviceMonitor.intProperty(service, "idVendor") == vendorID,
+               let pid = DeviceMonitor.intProperty(service, "idProduct"),
+               let model = DeviceModel.model(forProductID: pid) {
+                models.append(model)
+            }
+            IOObjectRelease(service)
+            service = IOIteratorNext(iterator)
+        }
+        return models
+    }
 }
