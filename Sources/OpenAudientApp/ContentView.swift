@@ -10,7 +10,7 @@ struct ContentView: View {
             Divider()
             if controller.isConnected {
                 Form {
-                    if !controller.inputMetersDB.isEmpty { metersSection }
+                    InputMetersView(meters: controller.meters)
                     monitorSection
                     if !controller.mixerLevelsDB.isEmpty { mixerSection }
                 }
@@ -90,26 +90,12 @@ struct ContentView: View {
         }
     }
 
-    private var metersSection: some View {
-        Section("Inputs") {
-            ForEach(controller.inputMetersDB.indices, id: \.self) { index in
-                HStack(spacing: 8) {
-                    Text("\(index + 1)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .frame(width: 16, alignment: .trailing)
-                    MeterBar(dB: controller.inputMetersDB[index])
-                }
-            }
-        }
-    }
-
     private var mixerSection: some View {
-        Section("Mixer") {
+        Section("Input → Main mix") {
             ForEach(controller.mixerLevelsDB.indices, id: \.self) { index in
-                dBSlider("Channel \(index + 1)",
+                dBSlider("Input \(index + 1)",
                          value: controller.mixerLevelsDB[index],
-                         set: { controller.setMixerLevel(channel: index, db: $0) })
+                         set: { controller.setMixerLevel(input: index, db: $0) })
             }
         }
     }
@@ -131,6 +117,28 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
             Slider(value: Binding(get: { value }, set: set), in: -60...0)
+        }
+    }
+}
+
+/// Live input meters. Observes `MeterReadings` only, so the ~20 Hz updates
+/// re-render just this view, not the toggles/faders or the window.
+struct InputMetersView: View {
+    @ObservedObject var meters: MeterReadings
+
+    var body: some View {
+        if !meters.inputsDB.isEmpty {
+            Section("Inputs") {
+                ForEach(meters.inputsDB.indices, id: \.self) { index in
+                    HStack(spacing: 8) {
+                        Text("\(index + 1)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 16, alignment: .trailing)
+                        MeterBar(dB: meters.inputsDB[index])
+                    }
+                }
+            }
         }
     }
 }

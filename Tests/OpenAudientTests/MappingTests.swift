@@ -16,11 +16,12 @@ final class MappingTests: XCTestCase {
         XCTAssertEqual(c.decode([0x67, 0xFC]), -3.6, accuracy: 0.05)
     }
 
-    func testInputChannelStride() {
-        XCTAssertEqual(Mixer.inputChannels(0).left, 0)
-        XCTAssertEqual(Mixer.inputChannels(0).right, 1)
-        XCTAssertEqual(Mixer.inputChannels(2).left, 12)
-        XCTAssertEqual(Mixer.inputChannels(2).right, 13)
+    func testMainSendChannels() {
+        // Each input has 6 slots; main mix is slots 4/5 (confirmed on hardware).
+        XCTAssertEqual(Mixer.mainSendChannels(input: 0).left, 4)
+        XCTAssertEqual(Mixer.mainSendChannels(input: 0).right, 5)
+        XCTAssertEqual(Mixer.mainSendChannels(input: 2).left, 16)
+        XCTAssertEqual(Mixer.mainSendChannels(input: 2).right, 17)
     }
 
     func testRoutingAddressing() {

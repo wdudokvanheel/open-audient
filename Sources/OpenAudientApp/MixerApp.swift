@@ -10,10 +10,9 @@ struct MixerApp: App {
         WindowGroup("Open Audient") {
             ContentView()
                 .environmentObject(controller)
-                .frame(minWidth: 460, minHeight: 420)
+                .frame(minWidth: 460, idealWidth: 480, minHeight: 440, idealHeight: 600)
                 .task { controller.start() }
         }
-        .windowResizability(.contentSize)
     }
 }
 

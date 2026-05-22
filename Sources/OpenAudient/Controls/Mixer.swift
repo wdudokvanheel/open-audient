@@ -14,9 +14,22 @@ public enum Mixer {
         )
     }
 
-    /// The left/right mixer channels carrying input `input` (stride of 6 per
-    /// input, per MixiD's `set_channel_volume`).
-    public static func inputChannels(_ input: UInt8) -> (left: UInt8, right: UInt8) {
-        (left: input &* 6, right: input &* 6 &+ 1)
+    /// Each input occupies 6 consecutive crosspoint slots: Cue A L/R, Cue B L/R,
+    /// then the **main mix** L/R. Confirmed on hardware (muting an input's slots
+    /// 4/5 removes it from the monitored main mix).
+    public static let slotsPerInput: UInt8 = 6
+    public static let mainLeftSlot: UInt8 = 4
+    public static let mainRightSlot: UInt8 = 5
+
+    /// The main-mix L/R crosspoint channels for an input (0-based).
+    public static func mainSendChannels(input: UInt8) -> (left: UInt8, right: UInt8) {
+        let base = input &* slotsPerInput
+        return (left: base &+ mainLeftSlot, right: base &+ mainRightSlot)
+    }
+
+    /// The main-mix L/R level controls for an input.
+    public static func mainSend(input: UInt8) -> (left: FixedQ88Control, right: FixedQ88Control) {
+        let channels = mainSendChannels(input: input)
+        return (level(channel: channels.left), level(channel: channels.right))
     }
 }

@@ -1,6 +1,14 @@
 import Foundation
 import Combine
 
+/// High-frequency input peak levels (dBFS), kept separate from `AudientController`
+/// so the ~20 Hz meter updates only re-render the meter views, not the whole UI.
+@MainActor
+public final class MeterReadings: ObservableObject {
+    @Published public var inputsDB: [Float] = []
+    public init() {}
+}
+
 /// Observable view-model over an `AudientDevice`, for SwiftUI.
 ///
 /// Owns the connection lifecycle (auto-connects via `DeviceMonitor`), mirrors the
@@ -26,8 +34,9 @@ public final class AudientController: ObservableObject {
     @Published public var talkback = false
     @Published public var mainVolumeDB: Double = 0
     @Published public var mixerLevelsDB: [Double] = []
-    /// Per-input peak levels in dBFS, updated while connected.
-    @Published public var inputMetersDB: [Float] = []
+
+    /// Live input peak meters (separate object to avoid re-rendering the whole UI).
+    public let meters = MeterReadings()
 
     /// How often the input meters are polled.
     public var meterInterval: Duration = .milliseconds(50)
@@ -85,7 +94,7 @@ public final class AudientController: ObservableObject {
     private func handleDisconnected() {
         meterTask?.cancel()
         meterTask = nil
-        inputMetersDB = []
+        meters.inputsDB = []
         device = nil
         connection = .disconnected
     }
@@ -96,8 +105,8 @@ public final class AudientController: ObservableObject {
         meterTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self, let device = self.device else { return }
-                if let meters = try? await device.readInputMeters(channels: channels) {
-                    self.inputMetersDB = meters
+                if let levels = try? await device.readInputMeters(channels: channels) {
+                    self.meters.inputsDB = levels
                 }
                 try? await Task.sleep(for: self.meterInterval)
             }
@@ -114,10 +123,11 @@ public final class AudientController: ObservableObject {
         talkback = (try? await device.read(Monitor.talkback)) ?? talkback
         mainVolumeDB = (try? await device.read(Monitor.mainVolume)) ?? mainVolumeDB
 
-        let channels = min(model?.micInputs ?? 0, 8)
+        let inputs = model?.micInputs ?? 0
         var levels: [Double] = []
-        for ch in 0..<channels {
-            levels.append((try? await device.read(Mixer.level(channel: UInt8(ch)))) ?? -128)
+        for input in 0..<inputs {
+            let left = Mixer.mainSend(input: UInt8(input)).left
+            levels.append((try? await device.read(left)) ?? -128)
         }
         mixerLevelsDB = levels
     }
@@ -131,10 +141,15 @@ public final class AudientController: ObservableObject {
     public func setTalkback(_ on: Bool)  { apply(Monitor.talkback, on) { self.talkback = on } }
     public func setMainVolume(_ db: Double) { apply(Monitor.mainVolume, db) { self.mainVolumeDB = db } }
 
-    public func setMixerLevel(channel: Int, db: Double) {
-        if channel < mixerLevelsDB.count { mixerLevelsDB[channel] = db }
+    /// Set an input's level in the main mix (writes both L and R sends).
+    public func setMixerLevel(input: Int, db: Double) {
+        if input < mixerLevelsDB.count { mixerLevelsDB[input] = db }
         guard let device else { return }
-        Task { _ = try? await device.write(Mixer.level(channel: UInt8(channel)), db) }
+        let send = Mixer.mainSend(input: UInt8(input))
+        Task {
+            _ = try? await device.write(send.left, db)
+            _ = try? await device.write(send.right, db)
+        }
     }
 
     private func apply<C: Control>(_ control: C, _ value: C.Value, update: () -> Void) {
