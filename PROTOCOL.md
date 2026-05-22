@@ -122,6 +122,11 @@ Notes:
 - Mixer input fader L/R map to mixer channels `input×6` and `input×6+1` (MixiD
   `set_channel_volume`). A live read showed channels 0/1 at −3.6 dB, 8/9 active,
   the rest at −128 dB (muted) — i.e. real mixer state.
+- The app's main-mix faders use the same 6-slot source stride and write slots
+  `source×6+4` / `source×6+5`. DAW 1+2 and DAW 3+4 are modelled as the two
+  stereo pairs immediately after the hardware inputs; on iD44, after 20 input
+  sources, DAW 1+2 meters appear at sources 20/21 and DAW 3+4 is expected at
+  sources 22/23. Linked DAW pair faders write both source sends.
 - All level controls are UAC2-standard signed Q8.8 dB (verified across monitor,
   mixer and headphone units). MixiD's linear `float→u16` mapping is its own
   approximation; this project follows the iD app's Q8.8.

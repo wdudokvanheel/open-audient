@@ -73,10 +73,15 @@ public final class AudientDevice: @unchecked Sendable {
         try await perform { try $0.getMemory(unitID: unit, offset: offset, length: length) }
     }
 
-    /// Read input peak meters as dBFS, one per channel.
-    public func readInputMeters(channels: Int) async throws -> [Float] {
+    /// Read peak meters as dBFS, one per channel.
+    public func readPeakMeters(channels: Int) async throws -> [Float] {
         let bytes = try await readMemory(unit: Meters.mixerUnit, offset: 0, length: UInt16(channels * 2))
         return Meters.peaks(bytes).map { Meters.dBFS($0) }
+    }
+
+    /// Read input peak meters as dBFS, one per channel.
+    public func readInputMeters(channels: Int) async throws -> [Float] {
+        try await readPeakMeters(channels: channels)
     }
 
     /// Run a transport operation on the device's serial queue.

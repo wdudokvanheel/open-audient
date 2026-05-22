@@ -6,6 +6,7 @@ import Combine
 @MainActor
 public final class MeterReadings: ObservableObject {
     @Published public var inputsDB: [Float] = []
+    @Published public var allDB: [Float] = []
     public init() {}
 }
 
@@ -34,6 +35,7 @@ public final class AudientController: ObservableObject {
     @Published public var talkback = false
     @Published public var mainVolumeDB: Double = 0
     @Published public var mixerLevelsDB: [Double] = []
+    @Published public var dawReturnLevelsDB: [Double] = []
 
     /// Live input peak meters (separate object to avoid re-rendering the whole UI).
     public let meters = MeterReadings()
@@ -84,7 +86,7 @@ public final class AudientController: ObservableObject {
             device = try await AudientDevice.openFirst(model)
             connection = .connected(model)
             await refresh()
-            startMeters(channels: model.micInputs)
+            startMeters(inputChannels: model.micInputs, diagnosticChannels: model.peakMeterChannels)
         } catch {
             device = nil
             connection = .error("\(error)")
@@ -95,17 +97,21 @@ public final class AudientController: ObservableObject {
         meterTask?.cancel()
         meterTask = nil
         meters.inputsDB = []
+        meters.allDB = []
         device = nil
         connection = .disconnected
     }
 
-    private func startMeters(channels: Int) {
+    private func startMeters(inputChannels: Int, diagnosticChannels: Int) {
         meterTask?.cancel()
-        guard channels > 0 else { return }
+        guard inputChannels > 0 else { return }
         meterTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self, let device = self.device else { return }
-                if let levels = try? await device.readInputMeters(channels: channels) {
+                if let levels = try? await device.readPeakMeters(channels: diagnosticChannels) {
+                    self.meters.allDB = levels
+                    self.meters.inputsDB = Array(levels.prefix(inputChannels))
+                } else if let levels = try? await device.readInputMeters(channels: inputChannels) {
                     self.meters.inputsDB = levels
                 }
                 try? await Task.sleep(for: self.meterInterval)
@@ -130,6 +136,14 @@ public final class AudientController: ObservableObject {
             levels.append((try? await device.read(left)) ?? -128)
         }
         mixerLevelsDB = levels
+
+        let inputCount = UInt8(model?.totalInputs ?? inputs)
+        var dawLevels: [Double] = []
+        for pair in 0..<Mixer.dawReturnPairs {
+            let left = Mixer.dawReturn(pair: UInt8(pair), afterInputCount: inputCount).left.left
+            dawLevels.append((try? await device.read(left)) ?? -128)
+        }
+        dawReturnLevelsDB = dawLevels
     }
 
     // MARK: Actions (optimistic: update state now, write in the background)
@@ -149,6 +163,20 @@ public final class AudientController: ObservableObject {
         Task {
             _ = try? await device.write(send.left, db)
             _ = try? await device.write(send.right, db)
+        }
+    }
+
+    /// Set a DAW return pair's level in the main mix (writes both L and R sends).
+    public func setDAWReturnLevel(pair: Int, db: Double) {
+        if pair < dawReturnLevelsDB.count { dawReturnLevelsDB[pair] = db }
+        guard let device else { return }
+        let inputCount = UInt8(model?.totalInputs ?? mixerLevelsDB.count)
+        let send = Mixer.dawReturn(pair: UInt8(pair), afterInputCount: inputCount)
+        Task {
+            _ = try? await device.write(send.left.left, db)
+            _ = try? await device.write(send.left.right, db)
+            _ = try? await device.write(send.right.left, db)
+            _ = try? await device.write(send.right.right, db)
         }
     }
 

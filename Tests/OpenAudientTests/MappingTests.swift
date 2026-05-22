@@ -24,6 +24,19 @@ final class MappingTests: XCTestCase {
         XCTAssertEqual(Mixer.mainSendChannels(input: 2).right, 17)
     }
 
+    func testDAWReturnChannelsFollowInputs() {
+        // On the iD44 there are 20 hardware input sources, followed by DAW 1+2
+        // and DAW 3+4 return pairs in the same 6-slot mixer source map.
+        XCTAssertEqual(Mixer.dawReturnSources(pair: 0, afterInputCount: 20).left, 20)
+        XCTAssertEqual(Mixer.dawReturnSources(pair: 0, afterInputCount: 20).right, 21)
+        XCTAssertEqual(Mixer.dawReturnChannels(pair: 0, afterInputCount: 20).left.left, 124)
+        XCTAssertEqual(Mixer.dawReturnChannels(pair: 0, afterInputCount: 20).left.right, 125)
+        XCTAssertEqual(Mixer.dawReturnChannels(pair: 0, afterInputCount: 20).right.left, 130)
+        XCTAssertEqual(Mixer.dawReturnChannels(pair: 0, afterInputCount: 20).right.right, 131)
+        XCTAssertEqual(Mixer.dawReturnSources(pair: 1, afterInputCount: 20).left, 22)
+        XCTAssertEqual(Mixer.dawReturnSources(pair: 1, afterInputCount: 20).right, 23)
+    }
+
     func testRoutingAddressing() {
         let c = Routing.source(output: 4)
         XCTAssertEqual(c.request.unitID, 0x33)

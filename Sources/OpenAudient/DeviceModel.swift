@@ -24,6 +24,18 @@ public struct DeviceModel: Sendable, Equatable, Identifiable {
     public var identifier: USBIdentifier { USBIdentifier(vendorID: 0x2708, productID: productID) }
     public var totalInputs: Int { micInputs + digitalInputs }
     public var totalOutputs: Int { lineOutputs + digitalOutputs }
+    /// Peak meter slots exposed by the mixer memory block: hardware inputs
+    /// followed by DAW playback channels.
+    public var peakMeterChannels: Int { totalInputs + dawPlaybackChannels }
+    /// DAW playback channels presented to the hardware mixer.
+    public var dawPlaybackChannels: Int {
+        switch productID {
+        case DeviceModel.iD44.productID, DeviceModel.iD44mkII.productID:
+            return 24
+        default:
+            return totalOutputs
+        }
+    }
 
     public init(
         name: String, productID: Int,
