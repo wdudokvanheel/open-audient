@@ -20,7 +20,6 @@ struct ContentView: View {
                     ScrollView {
                         VStack(spacing: 18) {
                             monitorSection
-                            mixerSurface
                             peakMeterSections
                         }
                         .padding(18)
@@ -237,11 +236,6 @@ struct ContentView: View {
                 stereoTitle: { "DAW \($0 * 2 + 1)+\($0 * 2 + 2)" }
             )
             groupedMeterPanel(
-                title: "Mix Buses",
-                channels: mixBusMeterChannels,
-                stereoTitle: mixBusPairTitle
-            )
-            groupedMeterPanel(
                 title: "Internal Peaks",
                 channels: internalPeakChannels,
                 stereoTitle: { "PEAK \($0 * 2 + 1)+\($0 * 2 + 2)" }
@@ -368,25 +362,14 @@ struct ContentView: View {
         }
     }
 
-    private var mixBusMeterChannels: [MeterChannel] {
-        guard let model = controller.model else { return [] }
-        let start = min(model.totalInputs + officialDAWPlaybackChannels, displayedPeakCount)
-        let end = min(start + officialMixBusChannels, displayedPeakCount)
-        guard start < end else { return [] }
-        return meterChannels(in: start..<end) { index in
-            mixBusTitle(at: index - start)
-        }
-    }
-
     private var internalPeakChannels: [MeterChannel] {
         guard let model = controller.model else { return [] }
-        let start = min(model.totalInputs + officialDAWPlaybackChannels + officialMixBusChannels, displayedPeakCount)
+        let start = min(model.totalInputs + officialDAWPlaybackChannels, displayedPeakCount)
         guard start < displayedPeakCount else { return [] }
         return meterChannels(in: start..<displayedPeakCount) { index in "PEAK \(index + 1)" }
     }
 
     private var officialDAWPlaybackChannels: Int { 10 }
-    private var officialMixBusChannels: Int { 10 }
 
     private var displayedPeakCount: Int {
         max(controller.meters.allDB.count, controller.model?.peakMeterChannels ?? 0)
@@ -450,33 +433,6 @@ struct ContentView: View {
             return "DIG OUT \(left - model.lineOutputs + 1)+\(right - model.lineOutputs + 1)"
         }
         return "\(outputTitle(at: left))+\(outputTitle(at: right))"
-    }
-
-    private func mixBusTitle(at offset: Int) -> String {
-        switch offset {
-        case 0: return "MASTER L"
-        case 1: return "MASTER R"
-        case 2: return "CUE A L"
-        case 3: return "CUE A R"
-        case 4: return "CUE B L"
-        case 5: return "CUE B R"
-        case 6: return "CUE C L"
-        case 7: return "CUE C R"
-        case 8: return "CUE D L"
-        case 9: return "CUE D R"
-        default: return "BUS \(offset + 1)"
-        }
-    }
-
-    private func mixBusPairTitle(at pair: Int) -> String {
-        switch pair {
-        case 0: return "MASTER MIX"
-        case 1: return "CUE A"
-        case 2: return "CUE B"
-        case 3: return "CUE C"
-        case 4: return "CUE D"
-        default: return "BUS \(pair + 1)"
-        }
     }
 
     private func meterChannels(in range: Range<Int>, controlled: (Int) -> Bool = { _ in false }, title: (Int) -> String) -> [MeterChannel] {
@@ -617,6 +573,7 @@ private struct MeterPairStrip: View {
 
     private var leftDB: Float { pair.left.dB(from: meters) }
     private var rightDB: Float { pair.right?.dB(from: meters) ?? -60 }
+    private var hasControls: Bool { pair.left.controlSource != nil || pair.right?.controlSource != nil }
 
     var body: some View {
         VStack(spacing: 10) {
@@ -643,14 +600,21 @@ private struct MeterPairStrip: View {
                 .help("Toggle mono/stereo meter view")
             }
             .frame(width: isSplit ? 150 : 70)
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
 
             if isSplit {
                 HStack(alignment: .top, spacing: 10) {
                     CompactMeterStrip(channel: pair.left, meters: meters)
                     if let right = pair.right {
+                        Rectangle()
+                            .fill(Color.white.opacity(0.12))
+                            .frame(width: 1, height: 236)
                         CompactMeterStrip(channel: right, meters: meters)
                     }
                 }
+                .padding(.horizontal, hasControls ? 0 : 10)
+                .padding(.bottom, hasControls ? 0 : 10)
             } else {
                 MixerMeterModule(
                     title: nil,
@@ -660,9 +624,10 @@ private struct MeterPairStrip: View {
                     controlSource: pair.left.controlSource,
                     pairedControlSource: pair.right?.controlSource
                 )
+                .padding(.horizontal, hasControls ? 0 : 10)
+                .padding(.bottom, hasControls ? 0 : 10)
             }
         }
-        .padding(10)
         .background(Color.channelSurface, in: RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
@@ -719,19 +684,7 @@ private struct MixerMeterModule: View {
         !controlSources.isEmpty && controlSources.allSatisfy { controller.soloedMainMixSources.contains($0) }
     }
 
-    var body: some View {
-        if controlSource == nil {
-            content
-                .padding(10)
-                .background(Color.channelSurface, in: RoundedRectangle(cornerRadius: 8))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(.white.opacity(0.1))
-                )
-        } else {
-            content
-        }
-    }
+    var body: some View { content }
 
     private var content: some View {
         VStack(spacing: 10) {
@@ -754,43 +707,36 @@ private struct MixerMeterModule: View {
             }
 
             VStack(spacing: 0) {
-                RoundedRectangle(cornerRadius: 7)
-                    .fill(Color.black.opacity(0.26))
-                    .overlay {
-                        HStack(alignment: .bottom, spacing: 8) {
-                            if let rightDB {
-                                SplitStereoMeter(leftDB: leftDB, rightDB: rightDB)
-                            } else {
-                                VerticalMeter(dB: leftDB)
-                            }
-
-                            if controlSource != nil {
-                                VerticalFader(value: level, setValue: setLevel)
-                            }
-                        }
-                        .padding(.horizontal, controlSource == nil ? 14 : 10)
-                        .padding(.vertical, 12)
+                HStack(alignment: .bottom, spacing: 8) {
+                    if let rightDB {
+                        SplitStereoMeter(leftDB: leftDB, rightDB: rightDB)
+                    } else {
+                        VerticalMeter(dB: leftDB)
                     }
-                    .frame(height: controlSource == nil ? 236 : 204)
+
+                    if controlSource != nil {
+                        VerticalFader(value: level, setValue: setLevel)
+                    }
+                }
+                .padding(.horizontal, controlSource == nil ? 14 : 10)
+                .padding(.top, controlSource == nil ? 12 : 18)
+                .padding(.bottom, 12)
+                .frame(height: controlSource == nil ? 236 : 198)
 
                 if controlSource != nil {
                     HStack(spacing: 0) {
-                        MeterActionButton(title: "M", isOn: isMuted, tint: .meterAmber) {
+                        MeterActionButton(title: "M", isOn: isMuted, tint: .meterAmber, side: .left) {
                             setMuted(!isMuted)
                         }
-                        MeterActionButton(title: "S", isOn: isSoloed, tint: .meterGreen) {
+                        MeterActionButton(title: "S", isOn: isSoloed, tint: .meterGreen, side: .right) {
                             setSoloed(!isSoloed)
                         }
                     }
                     .frame(height: 32)
+                    .padding(.top, 6)
                 }
             }
             .frame(width: controlSource == nil ? width : width + 42, height: 236)
-            .clipShape(RoundedRectangle(cornerRadius: 7))
-            .overlay(
-                RoundedRectangle(cornerRadius: 7)
-                    .stroke(.white.opacity(0.1))
-            )
         }
     }
 
@@ -816,25 +762,77 @@ private struct MixerMeterModule: View {
 }
 
 private struct MeterActionButton: View {
+    enum Side {
+        case left
+        case right
+    }
+
     let title: String
     let isOn: Bool
     let tint: Color
+    let side: Side
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Text(title)
                 .font(.caption2.weight(.black))
-                .foregroundStyle(isOn ? .black : tint.opacity(0.95))
+                .foregroundStyle(tint.opacity(isOn ? 1.0 : 0.85))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(isOn ? tint : tint.opacity(0.18))
+                .background(
+                    isOn ? tint.opacity(0.18) : Color.white.opacity(0.075),
+                    in: BottomOuterCornerShape(side: side, radius: 8)
+                )
                 .overlay(alignment: .top) {
                     Rectangle()
-                        .fill(isOn ? tint.opacity(0.65) : tint.opacity(0.28))
+                        .fill(isOn ? tint.opacity(0.28) : Color.white.opacity(0.1))
                         .frame(height: 1)
                 }
+                .overlay(alignment: side == .left ? .trailing : .leading) {
+                    Rectangle()
+                        .fill(Color.white.opacity(0.08))
+                        .frame(width: 1)
+                }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
         .buttonStyle(.plain)
+    }
+}
+
+private struct BottomOuterCornerShape: Shape {
+    let side: MeterActionButton.Side
+    let radius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let r = min(radius, rect.width / 2, rect.height / 2)
+        var path = Path()
+
+        switch side {
+        case .left:
+            path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
+            path.addQuadCurve(
+                to: CGPoint(x: rect.minX, y: rect.maxY - r),
+                control: CGPoint(x: rect.minX, y: rect.maxY)
+            )
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
+        case .right:
+            path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
+            path.addQuadCurve(
+                to: CGPoint(x: rect.maxX - r, y: rect.maxY),
+                control: CGPoint(x: rect.maxX, y: rect.maxY)
+            )
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
+        }
+
+        path.closeSubpath()
+        return path
     }
 }
 
@@ -1055,10 +1053,6 @@ private struct SplitStereoMeterBar: View {
                 .mask(alignment: .bottom) {
                     RoundedRectangle(cornerRadius: 3)
                 }
-
-                Rectangle()
-                    .fill(.black.opacity(0.45))
-                    .frame(width: 1)
             }
             .overlay(
                 RoundedRectangle(cornerRadius: 3)
