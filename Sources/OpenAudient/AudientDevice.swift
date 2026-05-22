@@ -79,6 +79,12 @@ public final class AudientDevice: @unchecked Sendable {
         return Meters.peaks(bytes).map { Meters.dBFS($0) }
     }
 
+    /// Read output peak meters as dBFS, one per hardware output channel.
+    public func readOutputMeters(channels: Int) async throws -> [Float] {
+        let bytes = try await readMemory(unit: Meters.mixerUnit, offset: 1, length: UInt16(channels * 2))
+        return Meters.peaks(bytes).map { Meters.dBFS($0) }
+    }
+
     /// Read input peak meters as dBFS, one per channel.
     public func readInputMeters(channels: Int) async throws -> [Float] {
         try await readPeakMeters(channels: channels)

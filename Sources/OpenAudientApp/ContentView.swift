@@ -236,6 +236,11 @@ struct ContentView: View {
                 channels: dawPlaybackMeterChannels,
                 stereoTitle: { "DAW \($0 * 2 + 1)+\($0 * 2 + 2)" }
             )
+            groupedMeterPanel(
+                title: "Hardware Outputs",
+                channels: outputMeterChannels,
+                stereoTitle: { outputPairTitle(at: $0) }
+            )
 
             if !unmappedMeterChannels.isEmpty {
                 meterPanel(
@@ -361,6 +366,15 @@ struct ContentView: View {
         return meterChannels(in: controller.meters.allDB.indices) { "Peak \($0)" }
     }
 
+    private var outputMeterChannels: [MeterChannel] {
+        guard let model = controller.model else { return [] }
+        let count = max(controller.meters.outputsDB.count, model.totalOutputs)
+        guard count > 0 else { return [] }
+        return (0..<count).map { index in
+            MeterChannel(index: index, title: outputTitle(at: index), bank: .outputs)
+        }
+    }
+
     // MARK: Helpers
 
     private func bind(_ keyPath: KeyPath<AudientController, Bool>, _ setter: @escaping (Bool) -> Void) -> Binding<Bool> {
@@ -386,6 +400,27 @@ struct ContentView: View {
         return inputCount + index * 2
     }
 
+    private func outputTitle(at index: Int) -> String {
+        guard let model = controller.model else { return "OUT \(index + 1)" }
+        if index < model.lineOutputs {
+            return "OUT \(index + 1)"
+        }
+        return "DIG OUT \(index - model.lineOutputs + 1)"
+    }
+
+    private func outputPairTitle(at pair: Int) -> String {
+        guard let model = controller.model else { return "OUT \(pair * 2 + 1)+\(pair * 2 + 2)" }
+        let left = pair * 2
+        let right = left + 1
+        if right < model.lineOutputs {
+            return "OUT \(left + 1)+\(right + 1)"
+        }
+        if left >= model.lineOutputs {
+            return "DIG OUT \(left - model.lineOutputs + 1)+\(right - model.lineOutputs + 1)"
+        }
+        return "\(outputTitle(at: left))+\(outputTitle(at: right))"
+    }
+
     private func meterChannels(in range: Range<Int>, title: (Int) -> String) -> [MeterChannel] {
         range.map { MeterChannel(index: $0, title: title($0)) }
     }
@@ -394,7 +429,7 @@ struct ContentView: View {
         stride(from: 0, to: channels.count, by: 2).map { offset in
             let left = channels[offset]
             let right = channels.indices.contains(offset + 1) ? channels[offset + 1] : nil
-            return MeterChannelPair(id: left.index, title: title(offset / 2), left: left, right: right)
+            return MeterChannelPair(id: left.id, title: title(offset / 2), left: left, right: right)
         }
     }
 }
@@ -471,11 +506,24 @@ private struct ControlPadButton: View {
     }
 }
 
+private enum MeterBank: Int {
+    case inputPlayback
+    case outputs
+}
+
 private struct MeterChannel: Identifiable {
     let index: Int
     let title: String
+    var bank: MeterBank = .inputPlayback
 
-    var id: Int { index }
+    var id: Int { bank.rawValue * 1000 + index }
+
+    @MainActor
+    func dB(from meters: MeterReadings) -> Float {
+        let levels = bank == .outputs ? meters.outputsDB : meters.allDB
+        guard levels.indices.contains(index) else { return -60 }
+        return levels[index]
+    }
 }
 
 private struct MeterChannelPair: Identifiable {
@@ -490,8 +538,7 @@ private struct MeterStrip: View {
     @ObservedObject var meters: MeterReadings
 
     private var dB: Float {
-        guard meters.allDB.indices.contains(channel.index) else { return -60 }
-        return meters.allDB[channel.index]
+        channel.dB(from: meters)
     }
 
     var body: some View {
@@ -536,13 +583,8 @@ private struct MeterPairStrip: View {
     @ObservedObject var meters: MeterReadings
     @State private var isSplit = false
 
-    private var leftDB: Float { dB(at: pair.left.index) }
-    private var rightDB: Float { pair.right.map { dB(at: $0.index) } ?? -60 }
-
-    private func dB(at index: Int) -> Float {
-        guard meters.allDB.indices.contains(index) else { return -60 }
-        return meters.allDB[index]
-    }
+    private var leftDB: Float { pair.left.dB(from: meters) }
+    private var rightDB: Float { pair.right?.dB(from: meters) ?? -60 }
 
     var body: some View {
         VStack(spacing: 10) {
@@ -610,19 +652,11 @@ private struct CompactMeterStrip: View {
     @ObservedObject var meters: MeterReadings
 
     private var dB: Float {
-        guard meters.allDB.indices.contains(channel.index) else { return -60 }
-        return meters.allDB[channel.index]
+        channel.dB(from: meters)
     }
 
     var body: some View {
         VStack(spacing: 7) {
-            Text(channel.title)
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .frame(width: 62)
-
             ZStack(alignment: .bottom) {
                 RoundedRectangle(cornerRadius: 7)
                     .fill(Color.black.opacity(0.26))
@@ -699,28 +733,111 @@ private struct VerticalFader: View {
     let value: Double
     let setValue: (Double) -> Void
 
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 3)
-                .fill(.black.opacity(0.42))
-                .frame(width: 6, height: 178)
-                .overlay(alignment: .top) {
-                    VStack(spacing: 28) {
-                        ForEach(0..<6, id: \.self) { _ in
-                            Rectangle()
-                                .fill(.white.opacity(0.2))
-                                .frame(width: 16, height: 1)
-                        }
-                    }
-                    .padding(.top, 6)
-                }
+    private let minValue: Double = -60
+    private let maxValue: Double = 0
+    private let trackHeight: CGFloat = 178
 
-            Slider(value: Binding(get: { value }, set: setValue), in: -60...0)
-                .rotationEffect(.degrees(-90))
-                .frame(width: 178, height: 24)
-                .tint(.white.opacity(0.85))
+    private var fraction: CGFloat {
+        CGFloat((clampedValue - minValue) / (maxValue - minValue))
+    }
+
+    private var clampedValue: Double {
+        min(max(value, minValue), maxValue)
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let height = min(trackHeight, geo.size.height)
+            let y = (1 - fraction) * height
+
+            ZStack {
+                FaderScale(height: height)
+                    .frame(width: 34, height: height)
+
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(.black.opacity(0.62))
+                    .frame(width: 8, height: height)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 3)
+                            .stroke(.white.opacity(0.08))
+                    )
+                    .overlay(alignment: .bottom) {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.meterGreen.opacity(0.95), Color.meterAmber.opacity(0.8)],
+                                    startPoint: .bottom,
+                                    endPoint: .top
+                                )
+                            )
+                            .frame(height: max(0, height * fraction))
+                            .mask(alignment: .bottom) {
+                                RoundedRectangle(cornerRadius: 3)
+                            }
+                    }
+
+                FaderCap()
+                    .offset(y: y - (height / 2))
+                    .shadow(color: .black.opacity(0.55), radius: 4, y: 2)
+            }
+            .frame(width: geo.size.width, height: height)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        setValue(value(forY: gesture.location.y, height: height))
+                    }
+            )
         }
         .frame(width: 34, height: 188)
+    }
+
+    private func value(forY y: CGFloat, height: CGFloat) -> Double {
+        let normalized = 1 - min(max(y / height, 0), 1)
+        return minValue + Double(normalized) * (maxValue - minValue)
+    }
+}
+
+private struct FaderScale: View {
+    let height: CGFloat
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<7, id: \.self) { tick in
+                let y = CGFloat(tick) * (height / 6)
+                Rectangle()
+                    .fill(.white.opacity(tick == 0 || tick == 6 ? 0.28 : 0.18))
+                    .frame(width: tick == 0 || tick == 6 ? 24 : 17, height: 1)
+                    .offset(y: y - height / 2)
+            }
+        }
+    }
+}
+
+private struct FaderCap: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 5)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.86, green: 0.88, blue: 0.86),
+                        Color(red: 0.48, green: 0.50, blue: 0.50),
+                        Color(red: 0.20, green: 0.22, blue: 0.22),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .frame(width: 30, height: 24)
+            .overlay(alignment: .center) {
+                Rectangle()
+                    .fill(.black.opacity(0.45))
+                    .frame(width: 24, height: 2)
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 5)
+                    .stroke(.white.opacity(0.25))
+            )
     }
 }
 

@@ -16,6 +16,7 @@ public enum CommandRunner {
             case "get":      return try await get(Array(arguments.dropFirst()))
             case "set":      return try await set(Array(arguments.dropFirst()))
             case "probe":    return try await probe(Array(arguments.dropFirst()))
+            case "meter-probe": return try await meterProbe(Array(arguments.dropFirst()))
             case "help", "-h", "--help": printUsage(); return 0
             default:
                 FileHandle.standardError.write(Data("unknown command: \(command)\n".utf8))
@@ -133,6 +134,40 @@ public enum CommandRunner {
         return 0
     }
 
+    private static func meterProbe(_ args: [String]) async throws -> Int32 {
+        let units = parseList(args.first, default: [0x3C])
+        let offsets = parseList(args.dropFirst().first, default: [0])
+        let length = args.count > 2 ? (hex(args[2]).map { UInt16($0) } ?? 0x58) : 0x58
+        let intervalMS = args.count > 3 ? (UInt64(hex(args[3]) ?? 250)) : 250
+
+        print("meter probe: units \(units.map(hexByte).joined(separator: ",")) offsets \(offsets.map(hexWord).joined(separator: ",")) len \(length) bytes")
+        print("play signal, then watch for moving/non-floor entries (Ctrl-C to stop)")
+
+        let device = try await AudientDevice.openFirst()
+        while true {
+            print("\n\(Date())")
+            for unit in units {
+                for offset in offsets {
+                    do {
+                        let bytes = try await device.readMemory(unit: UInt8(unit), offset: UInt16(offset), length: length)
+                        let peaks = Meters.peaks(bytes)
+                        let active = peaks.enumerated().compactMap { index, peak -> String? in
+                            let db = Meters.dBFS(peak)
+                            guard db > -55 else { return nil }
+                            return String(format: "%02d:%5.1f", index, db)
+                        }
+                        let summary = active.isEmpty ? "floor" : active.joined(separator: "  ")
+                        print("  unit \(hexByte(unit)) off \(hexWord(offset)) -> \(summary)")
+                    } catch {
+                        print("  unit \(hexByte(unit)) off \(hexWord(offset)) -> n/a")
+                    }
+                }
+            }
+            fflush(stdout)
+            try await Task.sleep(for: .milliseconds(intervalMS))
+        }
+    }
+
     private static func printUsage() {
         print("""
         usage:
@@ -145,6 +180,8 @@ public enum CommandRunner {
           oa get <unit> <selector> <len> [channel]
           oa set <unit> <selector> <channel> <byte[,byte…]>
           oa probe <unit> [firstSel] [lastSel]
+          oa meter-probe [units] [offsets] [len] [intervalMS]
+             units/offsets are comma-separated hex lists; defaults to known-good 0x3c/0x0000/0x58
         (numeric args are hex; quit the Audient iD app first)
         """)
     }
@@ -152,6 +189,13 @@ public enum CommandRunner {
     // MARK: Helpers
 
     private static func hex(_ s: String) -> UInt32? { UInt32(s.hasPrefix("0x") ? String(s.dropFirst(2)) : s, radix: 16) }
+    private static func parseList(_ s: String?, default defaults: [UInt32]) -> [UInt32] {
+        guard let s, !s.isEmpty else { return defaults }
+        let values = s.split(separator: ",").compactMap { hex(String($0)) }
+        return values.isEmpty ? defaults : values
+    }
+    private static func hexByte(_ value: UInt32) -> String { String(format: "0x%02x", value) }
+    private static func hexWord(_ value: UInt32) -> String { String(format: "0x%04x", value) }
     private static func bytesHex(_ bytes: [UInt8]) -> String { bytes.map { String(format: "%02x", $0) }.joined(separator: " ") }
     private static func onoff(_ b: Bool) -> String { b ? "on" : "off" }
 }

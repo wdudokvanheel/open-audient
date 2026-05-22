@@ -7,6 +7,7 @@ import Combine
 public final class MeterReadings: ObservableObject {
     @Published public var inputsDB: [Float] = []
     @Published public var allDB: [Float] = []
+    @Published public var outputsDB: [Float] = []
     public init() {}
 }
 
@@ -98,6 +99,7 @@ public final class AudientController: ObservableObject {
         meterTask = nil
         meters.inputsDB = []
         meters.allDB = []
+        meters.outputsDB = []
         device = nil
         connection = .disconnected
     }
@@ -113,6 +115,11 @@ public final class AudientController: ObservableObject {
                     self.meters.inputsDB = Array(levels.prefix(inputChannels))
                 } else if let levels = try? await device.readInputMeters(channels: inputChannels) {
                     self.meters.inputsDB = levels
+                }
+                if let outputChannels = self.model?.totalOutputs,
+                   outputChannels > 0,
+                   let levels = try? await device.readOutputMeters(channels: outputChannels) {
+                    self.meters.outputsDB = levels
                 }
                 try? await Task.sleep(for: self.meterInterval)
             }
