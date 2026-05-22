@@ -237,6 +237,16 @@ struct ContentView: View {
                 stereoTitle: { "DAW \($0 * 2 + 1)+\($0 * 2 + 2)" }
             )
             groupedMeterPanel(
+                title: "Mix Buses",
+                channels: mixBusMeterChannels,
+                stereoTitle: mixBusPairTitle
+            )
+            groupedMeterPanel(
+                title: "Internal Peaks",
+                channels: internalPeakChannels,
+                stereoTitle: { "PEAK \($0 * 2 + 1)+\($0 * 2 + 2)" }
+            )
+            groupedMeterPanel(
                 title: "Hardware Outputs",
                 channels: outputMeterChannels,
                 stereoTitle: { outputPairTitle(at: $0) }
@@ -351,11 +361,32 @@ struct ContentView: View {
     private var dawPlaybackMeterChannels: [MeterChannel] {
         guard let model = controller.model else { return [] }
         let start = min(model.totalInputs, displayedPeakCount)
-        guard start < displayedPeakCount else { return [] }
-        return meterChannels(in: start..<displayedPeakCount, controlled: controller.isControllableMainMixSource) { index in
+        let end = min(start + officialDAWPlaybackChannels, displayedPeakCount)
+        guard start < end else { return [] }
+        return meterChannels(in: start..<end, controlled: controller.isControllableMainMixSource) { index in
             "DAW \(index - start + 1)"
         }
     }
+
+    private var mixBusMeterChannels: [MeterChannel] {
+        guard let model = controller.model else { return [] }
+        let start = min(model.totalInputs + officialDAWPlaybackChannels, displayedPeakCount)
+        let end = min(start + officialMixBusChannels, displayedPeakCount)
+        guard start < end else { return [] }
+        return meterChannels(in: start..<end) { index in
+            mixBusTitle(at: index - start)
+        }
+    }
+
+    private var internalPeakChannels: [MeterChannel] {
+        guard let model = controller.model else { return [] }
+        let start = min(model.totalInputs + officialDAWPlaybackChannels + officialMixBusChannels, displayedPeakCount)
+        guard start < displayedPeakCount else { return [] }
+        return meterChannels(in: start..<displayedPeakCount) { index in "PEAK \(index + 1)" }
+    }
+
+    private var officialDAWPlaybackChannels: Int { 10 }
+    private var officialMixBusChannels: Int { 10 }
 
     private var displayedPeakCount: Int {
         max(controller.meters.allDB.count, controller.model?.peakMeterChannels ?? 0)
@@ -419,6 +450,33 @@ struct ContentView: View {
             return "DIG OUT \(left - model.lineOutputs + 1)+\(right - model.lineOutputs + 1)"
         }
         return "\(outputTitle(at: left))+\(outputTitle(at: right))"
+    }
+
+    private func mixBusTitle(at offset: Int) -> String {
+        switch offset {
+        case 0: return "MASTER L"
+        case 1: return "MASTER R"
+        case 2: return "CUE A L"
+        case 3: return "CUE A R"
+        case 4: return "CUE B L"
+        case 5: return "CUE B R"
+        case 6: return "CUE C L"
+        case 7: return "CUE C R"
+        case 8: return "CUE D L"
+        case 9: return "CUE D R"
+        default: return "BUS \(offset + 1)"
+        }
+    }
+
+    private func mixBusPairTitle(at pair: Int) -> String {
+        switch pair {
+        case 0: return "MASTER MIX"
+        case 1: return "CUE A"
+        case 2: return "CUE B"
+        case 3: return "CUE C"
+        case 4: return "CUE D"
+        default: return "BUS \(pair + 1)"
+        }
     }
 
     private func meterChannels(in range: Range<Int>, controlled: (Int) -> Bool = { _ in false }, title: (Int) -> String) -> [MeterChannel] {
@@ -662,6 +720,20 @@ private struct MixerMeterModule: View {
     }
 
     var body: some View {
+        if controlSource == nil {
+            content
+                .padding(10)
+                .background(Color.channelSurface, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(.white.opacity(0.1))
+                )
+        } else {
+            content
+        }
+    }
+
+    private var content: some View {
         VStack(spacing: 10) {
             if title != nil || subtitle != nil {
                 VStack(spacing: 2) {
@@ -681,52 +753,45 @@ private struct MixerMeterModule: View {
                 .frame(width: width)
             }
 
-            ZStack(alignment: .bottom) {
+            VStack(spacing: 0) {
                 RoundedRectangle(cornerRadius: 7)
                     .fill(Color.black.opacity(0.26))
+                    .overlay {
+                        HStack(alignment: .bottom, spacing: 8) {
+                            if let rightDB {
+                                SplitStereoMeter(leftDB: leftDB, rightDB: rightDB)
+                            } else {
+                                VerticalMeter(dB: leftDB)
+                            }
 
-                HStack(alignment: .bottom, spacing: 8) {
-                    if let rightDB {
-                        SplitStereoMeter(leftDB: leftDB, rightDB: rightDB)
-                    } else {
-                        VerticalMeter(dB: leftDB)
+                            if controlSource != nil {
+                                VerticalFader(value: level, setValue: setLevel)
+                            }
+                        }
+                        .padding(.horizontal, controlSource == nil ? 14 : 10)
+                        .padding(.vertical, 12)
                     }
+                    .frame(height: controlSource == nil ? 236 : 204)
 
-                    if controlSource != nil {
-                        VerticalFader(value: level, setValue: setLevel)
+                if controlSource != nil {
+                    HStack(spacing: 0) {
+                        MeterActionButton(title: "M", isOn: isMuted, tint: .meterAmber) {
+                            setMuted(!isMuted)
+                        }
+                        MeterActionButton(title: "S", isOn: isSoloed, tint: .meterGreen) {
+                            setSoloed(!isSoloed)
+                        }
                     }
+                    .frame(height: 32)
                 }
-                .padding(.horizontal, controlSource == nil ? 14 : 10)
-                .padding(.vertical, 12)
             }
             .frame(width: controlSource == nil ? width : width + 42, height: 236)
+            .clipShape(RoundedRectangle(cornerRadius: 7))
             .overlay(
                 RoundedRectangle(cornerRadius: 7)
                     .stroke(.white.opacity(0.1))
             )
-
-            if controlSource != nil {
-                HStack(spacing: 6) {
-                    MeterActionButton(title: "M", isOn: isMuted, tint: .meterAmber) {
-                        setMuted(!isMuted)
-                    }
-                    MeterActionButton(title: "S", isOn: isSoloed, tint: .meterGreen) {
-                        setSoloed(!isSoloed)
-                    }
-                }
-                .frame(width: width + 42)
-
-                LevelReadout(value: level)
-                    .font(.caption)
-                    .frame(width: width + 20)
-            }
         }
-        .padding(10)
-        .background(Color.channelSurface, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(.white.opacity(0.1))
-        )
     }
 
     private func setLevel(_ db: Double) {
@@ -760,13 +825,14 @@ private struct MeterActionButton: View {
         Button(action: action) {
             Text(title)
                 .font(.caption2.weight(.black))
-                .foregroundStyle(isOn ? .black : .secondary)
-                .frame(width: 24, height: 20)
-                .background(isOn ? tint : Color.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 5))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5)
-                        .stroke(isOn ? tint.opacity(0.6) : .white.opacity(0.12))
-                )
+                .foregroundStyle(isOn ? .black : tint.opacity(0.95))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(isOn ? tint : tint.opacity(0.18))
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(isOn ? tint.opacity(0.65) : tint.opacity(0.28))
+                        .frame(height: 1)
+                }
         }
         .buttonStyle(.plain)
     }
