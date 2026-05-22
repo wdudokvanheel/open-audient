@@ -333,7 +333,7 @@ struct ContentView: View {
         let available = displayedPeakCount
         let end = min(model.micInputs, available)
         guard end > 0 else { return [] }
-        return meterChannels(in: 0..<end) { index in
+        return meterChannels(in: 0..<end, controlled: controller.isControllableMainMixSource) { index in
             "IN \(index + 1)"
         }
     }
@@ -343,7 +343,7 @@ struct ContentView: View {
         let start = model.micInputs
         let end = min(model.totalInputs, displayedPeakCount)
         guard start < end else { return [] }
-        return meterChannels(in: start..<end) { index in
+        return meterChannels(in: start..<end, controlled: controller.isControllableMainMixSource) { index in
             "DIG \(index - start + 1)"
         }
     }
@@ -352,7 +352,7 @@ struct ContentView: View {
         guard let model = controller.model else { return [] }
         let start = min(model.totalInputs, displayedPeakCount)
         guard start < displayedPeakCount else { return [] }
-        return meterChannels(in: start..<displayedPeakCount) { index in
+        return meterChannels(in: start..<displayedPeakCount, controlled: controller.isControllableMainMixSource) { index in
             "DAW \(index - start + 1)"
         }
     }
@@ -421,8 +421,8 @@ struct ContentView: View {
         return "\(outputTitle(at: left))+\(outputTitle(at: right))"
     }
 
-    private func meterChannels(in range: Range<Int>, title: (Int) -> String) -> [MeterChannel] {
-        range.map { MeterChannel(index: $0, title: title($0)) }
+    private func meterChannels(in range: Range<Int>, controlled: (Int) -> Bool = { _ in false }, title: (Int) -> String) -> [MeterChannel] {
+        range.map { MeterChannel(index: $0, title: title($0), controlSource: controlled($0) ? $0 : nil) }
     }
 
     private func stereoPairs(from channels: [MeterChannel], title: (Int) -> String) -> [MeterChannelPair] {
@@ -515,6 +515,7 @@ private struct MeterChannel: Identifiable {
     let index: Int
     let title: String
     var bank: MeterBank = .inputPlayback
+    var controlSource: Int? = nil
 
     var id: Int { bank.rawValue * 1000 + index }
 
@@ -542,38 +543,11 @@ private struct MeterStrip: View {
     }
 
     var body: some View {
-        VStack(spacing: 10) {
-            VStack(spacing: 2) {
-                Text(channel.title)
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                Text(String(format: "%02d", channel.index))
-                    .font(.caption2.monospacedDigit().weight(.medium))
-                    .foregroundStyle(.secondary.opacity(0.8))
-            }
-            .frame(width: 70)
-
-            ZStack(alignment: .bottom) {
-                RoundedRectangle(cornerRadius: 7)
-                    .fill(Color.black.opacity(0.26))
-
-                VerticalMeter(dB: dB)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-            }
-            .frame(width: 70, height: 236)
-            .overlay(
-                RoundedRectangle(cornerRadius: 7)
-                    .stroke(.white.opacity(0.1))
-            )
-        }
-        .padding(10)
-        .background(Color.channelSurface, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(.white.opacity(0.1))
+        MixerMeterModule(
+            title: channel.title,
+            subtitle: nil,
+            leftDB: dB,
+            controlSource: channel.controlSource
         )
     }
 }
@@ -595,9 +569,6 @@ private struct MeterPairStrip: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
-                    Text(pair.right.map { String(format: "%02d/%02d", pair.left.index, $0.index) } ?? String(format: "%02d", pair.left.index))
-                        .font(.caption2.monospacedDigit().weight(.medium))
-                        .foregroundStyle(.secondary.opacity(0.8))
                 }
                 Button(isSplit ? "Mono" : "Stereo") {
                     isSplit.toggle()
@@ -623,18 +594,13 @@ private struct MeterPairStrip: View {
                     }
                 }
             } else {
-                ZStack(alignment: .bottom) {
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(Color.black.opacity(0.26))
-
-                    SplitStereoMeter(leftDB: leftDB, rightDB: rightDB)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                }
-                .frame(width: 70, height: 236)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 7)
-                        .stroke(.white.opacity(0.1))
+                MixerMeterModule(
+                    title: nil,
+                    subtitle: nil,
+                    leftDB: leftDB,
+                    rightDB: rightDB,
+                    controlSource: pair.left.controlSource,
+                    pairedControlSource: pair.right?.controlSource
                 )
             }
         }
@@ -656,21 +622,153 @@ private struct CompactMeterStrip: View {
     }
 
     var body: some View {
-        VStack(spacing: 7) {
+        MixerMeterModule(
+            title: nil,
+            subtitle: nil,
+            leftDB: dB,
+            controlSource: channel.controlSource,
+            width: 62
+        )
+    }
+}
+
+private struct MixerMeterModule: View {
+    @EnvironmentObject private var controller: AudientController
+
+    let title: String?
+    let subtitle: String?
+    let leftDB: Float
+    var rightDB: Float? = nil
+    var controlSource: Int? = nil
+    var pairedControlSource: Int? = nil
+    var width: CGFloat = 70
+
+    private var controlSources: [Int] {
+        [controlSource, pairedControlSource].compactMap { $0 }
+    }
+
+    private var level: Double {
+        guard let source = controlSource,
+              controller.mainMixSourceLevelsDB.indices.contains(source) else { return -60 }
+        return controller.mainMixSourceLevelsDB[source]
+    }
+
+    private var isMuted: Bool {
+        !controlSources.isEmpty && controlSources.allSatisfy { controller.mutedMainMixSources.contains($0) }
+    }
+
+    private var isSoloed: Bool {
+        !controlSources.isEmpty && controlSources.allSatisfy { controller.soloedMainMixSources.contains($0) }
+    }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            if title != nil || subtitle != nil {
+                VStack(spacing: 2) {
+                    if let title {
+                        Text(title)
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                    }
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.caption2.monospacedDigit().weight(.medium))
+                            .foregroundStyle(.secondary.opacity(0.8))
+                    }
+                }
+                .frame(width: width)
+            }
+
             ZStack(alignment: .bottom) {
                 RoundedRectangle(cornerRadius: 7)
                     .fill(Color.black.opacity(0.26))
 
-                VerticalMeter(dB: dB)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
+                HStack(alignment: .bottom, spacing: 8) {
+                    if let rightDB {
+                        SplitStereoMeter(leftDB: leftDB, rightDB: rightDB)
+                    } else {
+                        VerticalMeter(dB: leftDB)
+                    }
+
+                    if controlSource != nil {
+                        VerticalFader(value: level, setValue: setLevel)
+                    }
+                }
+                .padding(.horizontal, controlSource == nil ? 14 : 10)
+                .padding(.vertical, 12)
             }
-            .frame(width: 62, height: 236)
+            .frame(width: controlSource == nil ? width : width + 42, height: 236)
             .overlay(
                 RoundedRectangle(cornerRadius: 7)
                     .stroke(.white.opacity(0.1))
             )
+
+            if controlSource != nil {
+                HStack(spacing: 6) {
+                    MeterActionButton(title: "M", isOn: isMuted, tint: .meterAmber) {
+                        setMuted(!isMuted)
+                    }
+                    MeterActionButton(title: "S", isOn: isSoloed, tint: .meterGreen) {
+                        setSoloed(!isSoloed)
+                    }
+                }
+                .frame(width: width + 42)
+
+                LevelReadout(value: level)
+                    .font(.caption)
+                    .frame(width: width + 20)
+            }
         }
+        .padding(10)
+        .background(Color.channelSurface, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(.white.opacity(0.1))
+        )
+    }
+
+    private func setLevel(_ db: Double) {
+        if let pairedControlSource {
+            controller.setMainMixStereoPairLevel(pairStartingAt: controlSource ?? pairedControlSource, db: db)
+        } else if let controlSource {
+            controller.setMainMixSourceLevel(source: controlSource, db: db)
+        }
+    }
+
+    private func setMuted(_ muted: Bool) {
+        for source in controlSources {
+            controller.setMainMixSourceMuted(source: source, muted: muted)
+        }
+    }
+
+    private func setSoloed(_ soloed: Bool) {
+        for source in controlSources {
+            controller.setMainMixSourceSoloed(source: source, soloed: soloed)
+        }
+    }
+}
+
+private struct MeterActionButton: View {
+    let title: String
+    let isOn: Bool
+    let tint: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption2.weight(.black))
+                .foregroundStyle(isOn ? .black : .secondary)
+                .frame(width: 24, height: 20)
+                .background(isOn ? tint : Color.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 5))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5)
+                        .stroke(isOn ? tint.opacity(0.6) : .white.opacity(0.12))
+                )
+        }
+        .buttonStyle(.plain)
     }
 }
 
