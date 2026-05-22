@@ -44,6 +44,7 @@ swift run oa cut status|on|off|toggle    # the Cut switch (mirrors id44cut)
 swift run oa dump                        # read the whole device
 swift run oa list                        # connected iD models
 swift run oa watch                       # live connect/disconnect events
+swift run oa meters                      # live input peak meters (dBFS)
 swift run oa get <unit> <sel> <len>      # raw GET_CUR (hex) — for protocol mapping
 swift run oa probe <unit>                # GET_CUR selector sweep
 

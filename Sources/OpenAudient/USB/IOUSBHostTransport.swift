@@ -59,6 +59,19 @@ public final class IOUSBHostTransport: USBControlTransport, @unchecked Sendable 
         _ = try send(request, data: payload, label: "SET_CUR")
     }
 
+    public func getMemory(unitID: UInt8, offset: UInt16, length: UInt16) throws -> [UInt8] {
+        var request = IOUSBDeviceRequest()
+        request.bmRequestType = UACRequestCode.getRequestType
+        request.bRequest = UACRequestCode.memory
+        request.wValue = offset
+        request.wIndex = UInt16(unitID) << 8
+        request.wLength = length
+
+        let buffer = NSMutableData(length: Int(length)) ?? NSMutableData()
+        let transferred = try send(request, data: buffer, label: "GET_MEM")
+        return [UInt8](Data(referencing: buffer).prefix(transferred))
+    }
+
     /// Single chokepoint for the synchronous control transfer. IOUSBHost exposes
     /// the timeout-bearing variant as `__send` (NS_REFINED_FOR_SWIFT); keep that
     /// `__` name confined here. Returns the number of bytes transferred.

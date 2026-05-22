@@ -68,6 +68,17 @@ public final class AudientDevice: @unchecked Sendable {
         }
     }
 
+    /// Read a block "memory" region (e.g. meters).
+    public func readMemory(unit: UInt8, offset: UInt16 = 0, length: UInt16) async throws -> [UInt8] {
+        try await perform { try $0.getMemory(unitID: unit, offset: offset, length: length) }
+    }
+
+    /// Read input peak meters as dBFS, one per channel.
+    public func readInputMeters(channels: Int) async throws -> [Float] {
+        let bytes = try await readMemory(unit: Meters.mixerUnit, offset: 0, length: UInt16(channels * 2))
+        return Meters.peaks(bytes).map { Meters.dBFS($0) }
+    }
+
     /// Run a transport operation on the device's serial queue.
     private func perform<T>(_ body: @escaping (USBControlTransport) throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in

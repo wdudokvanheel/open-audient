@@ -12,6 +12,7 @@ public enum CommandRunner {
             case "dump":     return try await dump()
             case "list":     return list()
             case "watch":    await watch(); return 0
+            case "meters":   return try await meters()
             case "get":      return try await get(Array(arguments.dropFirst()))
             case "set":      return try await set(Array(arguments.dropFirst()))
             case "probe":    return try await probe(Array(arguments.dropFirst()))
@@ -77,6 +78,23 @@ public enum CommandRunner {
         }
     }
 
+    private static func meters() async throws -> Int32 {
+        let device = try await AudientDevice.openFirst()
+        let channels = max(device.model.micInputs, 1)
+        print("input meters (\(channels) ch), Ctrl-C to stop…")
+        while true {
+            let levels = try await device.readInputMeters(channels: channels)
+            let row = levels.enumerated().map { i, db in
+                let filled = Int((max(0, min(1, (db + 60) / 60))) * 20)
+                let bar = String(repeating: "█", count: filled) + String(repeating: "·", count: 20 - filled)
+                return String(format: "%d|%@|%5.0f", i + 1, bar, db)
+            }.joined(separator: "  ")
+            print("\r\(row)", terminator: "")
+            fflush(stdout)
+            try await Task.sleep(for: .milliseconds(80))
+        }
+    }
+
     private static func get(_ args: [String]) async throws -> Int32 {
         guard args.count >= 3, let u = hex(args[0]), let s = hex(args[1]), let l = hex(args[2]) else {
             FileHandle.standardError.write(Data("usage: oa get <unit> <selector> <len> [channel]\n".utf8)); return 1
@@ -123,6 +141,7 @@ public enum CommandRunner {
           oa dump
           oa list
           oa watch
+          oa meters
           oa get <unit> <selector> <len> [channel]
           oa set <unit> <selector> <channel> <byte[,byte…]>
           oa probe <unit> [firstSel] [lastSel]

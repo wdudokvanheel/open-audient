@@ -13,4 +13,8 @@ public enum UACRequestCode {
     /// `bmRequestType` for GET_CUR: device→host, class request, interface recipient.
     /// 0b1_01_00001 = 0xA1
     public static let getRequestType: UInt8 = 0xA1
+
+    /// `bRequest` for Audient's block "memory" read used by the meters
+    /// (`bmRequestType` 0xA1, returns an array of per-channel peak values).
+    public static let memory: UInt8 = 0x03
 }

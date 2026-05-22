@@ -26,10 +26,16 @@ public final class AudientController: ObservableObject {
     @Published public var talkback = false
     @Published public var mainVolumeDB: Double = 0
     @Published public var mixerLevelsDB: [Double] = []
+    /// Per-input peak levels in dBFS, updated while connected.
+    @Published public var inputMetersDB: [Float] = []
+
+    /// How often the input meters are polled.
+    public var meterInterval: Duration = .milliseconds(50)
 
     private var device: AudientDevice?
     private let monitor = DeviceMonitor()
     private var monitorTask: Task<Void, Never>?
+    private var meterTask: Task<Void, Never>?
 
     public init() {}
     deinit { monitorTask?.cancel() }
@@ -57,6 +63,8 @@ public final class AudientController: ObservableObject {
     }
 
     public func stop() {
+        meterTask?.cancel()
+        meterTask = nil
         monitorTask?.cancel()
         monitorTask = nil
     }
@@ -67,6 +75,7 @@ public final class AudientController: ObservableObject {
             device = try await AudientDevice.openFirst(model)
             connection = .connected(model)
             await refresh()
+            startMeters(channels: model.micInputs)
         } catch {
             device = nil
             connection = .error("\(error)")
@@ -74,8 +83,25 @@ public final class AudientController: ObservableObject {
     }
 
     private func handleDisconnected() {
+        meterTask?.cancel()
+        meterTask = nil
+        inputMetersDB = []
         device = nil
         connection = .disconnected
+    }
+
+    private func startMeters(channels: Int) {
+        meterTask?.cancel()
+        guard channels > 0 else { return }
+        meterTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, let device = self.device else { return }
+                if let meters = try? await device.readInputMeters(channels: channels) {
+                    self.inputMetersDB = meters
+                }
+                try? await Task.sleep(for: self.meterInterval)
+            }
+        }
     }
 
     /// Re-read the readable controls from the device.

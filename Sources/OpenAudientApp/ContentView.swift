@@ -10,6 +10,7 @@ struct ContentView: View {
             Divider()
             if controller.isConnected {
                 Form {
+                    if !controller.inputMetersDB.isEmpty { metersSection }
                     monitorSection
                     if !controller.mixerLevelsDB.isEmpty { mixerSection }
                 }
@@ -89,6 +90,20 @@ struct ContentView: View {
         }
     }
 
+    private var metersSection: some View {
+        Section("Inputs") {
+            ForEach(controller.inputMetersDB.indices, id: \.self) { index in
+                HStack(spacing: 8) {
+                    Text("\(index + 1)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16, alignment: .trailing)
+                    MeterBar(dB: controller.inputMetersDB[index])
+                }
+            }
+        }
+    }
+
     private var mixerSection: some View {
         Section("Mixer") {
             ForEach(controller.mixerLevelsDB.indices, id: \.self) { index in
@@ -117,5 +132,24 @@ struct ContentView: View {
             }
             Slider(value: Binding(get: { value }, set: set), in: -60...0)
         }
+    }
+}
+
+/// A horizontal peak-level bar driven by a dBFS value (floor −60).
+struct MeterBar: View {
+    let dB: Float
+
+    private var fraction: CGFloat { CGFloat(max(0, min(1, (dB + 60) / 60))) }
+    private var color: Color { dB > -3 ? .red : (dB > -12 ? .yellow : .green) }
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.secondary.opacity(0.15))
+                Capsule().fill(color).frame(width: max(2, geo.size.width * fraction))
+            }
+        }
+        .frame(height: 8)
+        .animation(.linear(duration: 0.05), value: dB)
     }
 }

@@ -17,6 +17,10 @@ final class MockTransport: USBControlTransport, @unchecked Sendable {
         setCalls.append((request, data))
         stored = data
     }
+
+    func getMemory(unitID: UInt8, offset: UInt16, length: UInt16) throws -> [UInt8] {
+        [UInt8](repeating: 0, count: Int(length))
+    }
 }
 
 final class AudientDeviceTests: XCTestCase {
