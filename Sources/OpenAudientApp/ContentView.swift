@@ -238,7 +238,7 @@ struct ContentView: View {
             groupedMeterPanel(
                 title: "Internal Peaks",
                 channels: internalPeakChannels,
-                stereoTitle: { "PEAK \($0 * 2 + 1)+\($0 * 2 + 2)" }
+                stereoTitle: internalPeakPairTitle
             )
             groupedMeterPanel(
                 title: "Hardware Outputs",
@@ -355,7 +355,7 @@ struct ContentView: View {
     private var dawPlaybackMeterChannels: [MeterChannel] {
         guard let model = controller.model else { return [] }
         let start = min(model.totalInputs, displayedPeakCount)
-        let end = min(start + officialDAWPlaybackChannels, displayedPeakCount)
+        let end = min(start + displayedDAWPlaybackChannels, displayedPeakCount)
         guard start < end else { return [] }
         return meterChannels(in: start..<end, controlled: controller.isControllableMainMixSource) { index in
             "DAW \(index - start + 1)"
@@ -364,12 +364,12 @@ struct ContentView: View {
 
     private var internalPeakChannels: [MeterChannel] {
         guard let model = controller.model else { return [] }
-        let start = min(model.totalInputs + officialDAWPlaybackChannels, displayedPeakCount)
+        let start = internalPeakStart(for: model)
         guard start < displayedPeakCount else { return [] }
         return meterChannels(in: start..<displayedPeakCount) { index in "PEAK \(index + 1)" }
     }
 
-    private var officialDAWPlaybackChannels: Int { 10 }
+    private var displayedDAWPlaybackChannels: Int { 4 }
 
     private var displayedPeakCount: Int {
         max(controller.meters.allDB.count, controller.model?.peakMeterChannels ?? 0)
@@ -433,6 +433,17 @@ struct ContentView: View {
             return "DIG OUT \(left - model.lineOutputs + 1)+\(right - model.lineOutputs + 1)"
         }
         return "\(outputTitle(at: left))+\(outputTitle(at: right))"
+    }
+
+    private func internalPeakStart(for model: DeviceModel) -> Int {
+        min(model.totalInputs + displayedDAWPlaybackChannels, displayedPeakCount)
+    }
+
+    private func internalPeakPairTitle(at pair: Int) -> String {
+        guard let model = controller.model else { return "PEAK \(pair * 2 + 1)+\(pair * 2 + 2)" }
+        let left = internalPeakStart(for: model) + pair * 2
+        let right = left + 1
+        return "PEAK \(left + 1)+\(right + 1)"
     }
 
     private func meterChannels(in range: Range<Int>, controlled: (Int) -> Bool = { _ in false }, title: (Int) -> String) -> [MeterChannel] {
