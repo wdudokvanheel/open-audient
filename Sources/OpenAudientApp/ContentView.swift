@@ -6,11 +6,22 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
+            Color.appBase
+                .ignoresSafeArea()
+
             LinearGradient(
-                colors: [Color.panelTop, Color.panelBottom],
+                colors: [Color.appTop, Color.appBase, Color.appBottom],
                 startPoint: .top,
                 endPoint: .bottom
             )
+            .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                Rectangle()
+                    .fill(Color.white.opacity(0.06))
+                    .frame(height: 1)
+                Spacer()
+            }
             .ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -22,7 +33,10 @@ struct ContentView: View {
                             monitorSection
                             peakMeterSections
                         }
-                        .padding(18)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 20)
+                        .frame(maxWidth: 1180, alignment: .topLeading)
+                        .frame(maxWidth: .infinity)
                     }
                 } else {
                     statusView
@@ -36,19 +50,40 @@ struct ContentView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(controller.isConnected ? Color.meterGreen : Color.secondary.opacity(0.55))
-                    .shadow(color: controller.isConnected ? Color.meterGreen.opacity(0.65) : .clear, radius: 5)
-                    .frame(width: 9, height: 9)
+            HStack(spacing: 11) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 7)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.audientRed.opacity(0.95), Color.audientRed.opacity(0.42)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    Image(systemName: "slider.vertical.3")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.92))
+                }
+                .frame(width: 34, height: 34)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7)
+                        .stroke(.white.opacity(0.16))
+                )
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(controller.model?.name ?? "Open Audient")
                         .font(.headline.weight(.semibold))
-                    Text(controller.isConnected ? "USB mixer online" : "Waiting for interface")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .textCase(.uppercase)
+                        .foregroundStyle(.primary)
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(controller.isConnected ? Color.meterGreen : Color.secondary.opacity(0.55))
+                            .shadow(color: controller.isConnected ? Color.meterGreen.opacity(0.6) : .clear, radius: 4)
+                            .frame(width: 6, height: 6)
+                        Text(controller.isConnected ? "USB mixer online" : "Waiting for interface")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .textCase(.uppercase)
+                    }
                 }
             }
 
@@ -58,23 +93,31 @@ struct ContentView: View {
                 Button { Task { await controller.refresh() } } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                         .labelStyle(.iconOnly)
-                        .frame(width: 30, height: 30)
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 32, height: 32)
                 }
                 .buttonStyle(.plain)
-                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                .background(Color.controlSurface, in: RoundedRectangle(cornerRadius: 6))
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
-                        .stroke(.white.opacity(0.12))
+                        .stroke(.white.opacity(0.14))
                 )
+                .shadow(color: .black.opacity(0.22), radius: 6, y: 3)
                 .help("Re-read values from the device")
             }
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .background(Color.black.opacity(0.24))
+        .padding(.vertical, 12)
+        .background(
+            LinearGradient(
+                colors: [Color.headerTop, Color.headerBottom],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(Color.white.opacity(0.08))
+                .fill(Color.white.opacity(0.09))
                 .frame(height: 1)
         }
     }
@@ -86,14 +129,15 @@ struct ContentView: View {
             Spacer()
 
             Image(systemName: "hifispeaker.2.fill")
-                .font(.system(size: 42, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 78, height: 78)
-                .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+                .font(.system(size: 40, weight: .medium))
+                .foregroundStyle(.white.opacity(0.72))
+                .frame(width: 82, height: 82)
+                .background(Color.channelSurface, in: RoundedRectangle(cornerRadius: 8))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
-                        .stroke(.white.opacity(0.1))
+                        .stroke(.white.opacity(0.12))
                 )
+                .shadow(color: .black.opacity(0.28), radius: 16, y: 8)
 
             Text(statusTitle)
                 .font(.title3.weight(.semibold))
@@ -129,93 +173,68 @@ struct ContentView: View {
     private var monitorSection: some View {
         Panel {
             VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Monitor")
-                        .font(.headline.weight(.semibold))
-                    Spacer()
-                    LevelReadout(value: controller.mainVolumeDB)
-                }
+                SectionHeader(
+                    title: "Monitor",
+                    detail: controller.isConnected ? "Main output control" : nil,
+                    count: nil
+                )
 
-                HStack(alignment: .center, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 11) {
-                        Text("Main Output")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .textCase(.uppercase)
-
-                        Slider(value: Binding(get: { controller.mainVolumeDB }, set: controller.setMainVolume), in: -60...0)
-
-                        HStack {
-                            Text("-60")
-                            Spacer()
-                            Text("-30")
-                            Spacer()
-                            Text("0 dB")
-                        }
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center, spacing: 16) {
+                        monitorSlider
+                        Spacer(minLength: 0)
+                        monitorButtons
                     }
 
-                    Divider()
-                        .frame(height: 66)
-                        .overlay(.white.opacity(0.08))
-
-                    LazyVGrid(columns: Array(repeating: GridItem(.fixed(76), spacing: 8), count: 3), spacing: 8) {
-                        ControlPadButton(title: "Cut", systemImage: "speaker.slash.fill", isOn: bind(\.cut, controller.setCut), tint: .red)
-                        ControlPadButton(title: "Dim", systemImage: "speaker.wave.1.fill", isOn: bind(\.dim, controller.setDim), tint: .orange)
-                        ControlPadButton(title: "Mono", systemImage: "rectangle.split.1x2.fill", isOn: bind(\.mono, controller.setMono), tint: .blue)
-                        ControlPadButton(title: "Polarity", systemImage: "plusminus", isOn: bind(\.polarity, controller.setPolarity), tint: .purple)
-                        ControlPadButton(title: "Talk", systemImage: "mic.fill", isOn: bind(\.talkback, controller.setTalkback), tint: .mint)
+                    VStack(alignment: .leading, spacing: 14) {
+                        monitorSlider
+                        monitorButtons
                     }
                 }
             }
         }
     }
 
-    private var mixerSurface: some View {
-        Panel {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Input to Main Mix")
-                        .font(.headline.weight(.semibold))
-                    Spacer()
-                    Text("\(inputChannelCount + dawReturnCount) channels")
-                        .font(.caption.monospacedDigit().weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
-
-                if inputChannelCount + dawReturnCount > 0 {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(alignment: .top, spacing: 10) {
-                            ForEach(0..<inputChannelCount, id: \.self) { index in
-                                ChannelStrip(
-                                    title: "IN \(index + 1)",
-                                    meterIndex: index,
-                                    meters: controller.meters,
-                                    level: mixerLevel(at: index),
-                                    setLevel: { controller.setMixerLevel(input: index, db: $0) }
-                                )
-                            }
-                            ForEach(0..<dawReturnCount, id: \.self) { index in
-                                ChannelStrip(
-                                    title: dawReturnTitle(at: index),
-                                    meterIndex: dawReturnMeterIndex(at: index),
-                                    meters: controller.meters,
-                                    level: dawReturnLevel(at: index),
-                                    setLevel: { controller.setDAWReturnLevel(pair: index, db: $0) }
-                                )
-                            }
-                        }
-                        .padding(.bottom, 2)
-                    }
-                } else {
-                    Text("No input channels reported by the connected interface.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 18)
-                }
+    private var monitorSlider: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Main Output")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                Spacer()
+                LevelReadout(value: controller.mainVolumeDB)
             }
+
+            Slider(value: Binding(get: { controller.mainVolumeDB }, set: controller.setMainVolume), in: -60...0)
+                .tint(Color.audientRed)
+
+            HStack {
+                Text("-60")
+                Spacer()
+                Text("-30")
+                Spacer()
+                Text("0 dB")
+            }
+            .font(.caption2.monospacedDigit().weight(.medium))
+            .foregroundStyle(.secondary.opacity(0.85))
+        }
+        .padding(14)
+        .frame(minWidth: 260)
+        .background(Color.controlSurface, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(.white.opacity(0.1))
+        )
+    }
+
+    private var monitorButtons: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.fixed(76), spacing: 8), count: 3), spacing: 8) {
+            ControlPadButton(title: "Cut", systemImage: "speaker.slash.fill", isOn: bind(\.cut, controller.setCut), tint: .red)
+            ControlPadButton(title: "Dim", systemImage: "speaker.wave.1.fill", isOn: bind(\.dim, controller.setDim), tint: .orange)
+            ControlPadButton(title: "Mono", systemImage: "rectangle.split.1x2.fill", isOn: bind(\.mono, controller.setMono), tint: .blue)
+            ControlPadButton(title: "Polarity", systemImage: "plusminus", isOn: bind(\.polarity, controller.setPolarity), tint: .purple)
+            ControlPadButton(title: "Talk", systemImage: "mic.fill", isOn: bind(\.talkback, controller.setTalkback), tint: .mint)
         }
     }
 
@@ -258,21 +277,10 @@ struct ContentView: View {
     private func meterPanel(title: String, channels: [MeterChannel]) -> some View {
         Panel {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(title)
-                        .font(.headline.weight(.semibold))
-                    Spacer()
-                    Text("\(channels.count) channels")
-                        .font(.caption.monospacedDigit().weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
+                SectionHeader(title: title, detail: nil, count: "\(channels.count) channels")
 
                 if channels.isEmpty {
-                    Text("No channels reported for this group.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 10)
+                    EmptyMeterState()
                 } else {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(alignment: .top, spacing: 10) {
@@ -294,22 +302,14 @@ struct ContentView: View {
     ) -> some View {
         Panel {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .center) {
-                    Text(title)
-                        .font(.headline.weight(.semibold))
-                    Spacer()
-                    Text("\(stereoPairs(from: channels, title: stereoTitle).count) pairs")
-                        .font(.caption.monospacedDigit().weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 82, alignment: .trailing)
-                }
+                SectionHeader(
+                    title: title,
+                    detail: nil,
+                    count: "\(stereoPairs(from: channels, title: stereoTitle).count) pairs"
+                )
 
                 if channels.isEmpty {
-                    Text("No channels reported for this group.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 10)
+                    EmptyMeterState()
                 } else {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(alignment: .top, spacing: 10) {
@@ -322,14 +322,6 @@ struct ContentView: View {
                 }
             }
         }
-    }
-
-    private var inputChannelCount: Int {
-        max(controller.meters.inputsDB.count, controller.mixerLevelsDB.count)
-    }
-
-    private var dawReturnCount: Int {
-        max(controller.dawReturnLevelsDB.count, Mixer.dawReturnPairs)
     }
 
     private var analogMeterChannels: [MeterChannel] {
@@ -395,25 +387,6 @@ struct ContentView: View {
         Binding(get: { controller[keyPath: keyPath] }, set: setter)
     }
 
-    private func mixerLevel(at index: Int) -> Double {
-        guard controller.mixerLevelsDB.indices.contains(index) else { return -60 }
-        return controller.mixerLevelsDB[index]
-    }
-
-    private func dawReturnLevel(at index: Int) -> Double {
-        guard controller.dawReturnLevelsDB.indices.contains(index) else { return -60 }
-        return controller.dawReturnLevelsDB[index]
-    }
-
-    private func dawReturnTitle(at index: Int) -> String {
-        "DAW \(index * 2 + 1)+\(index * 2 + 2)"
-    }
-
-    private func dawReturnMeterIndex(at index: Int) -> Int? {
-        guard let inputCount = controller.model?.totalInputs else { return nil }
-        return inputCount + index * 2
-    }
-
     private func outputTitle(at index: Int) -> String {
         guard let model = controller.model else { return "OUT \(index + 1)" }
         if index < model.lineOutputs {
@@ -469,17 +442,73 @@ private struct Panel<Content: View>: View {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(
                         LinearGradient(
-                            colors: [.white.opacity(0.1), .white.opacity(0.045)],
+                            colors: [Color.panelSurfaceTop, Color.panelSurfaceBottom],
                             startPoint: .top,
                             endPoint: .bottom
                         )
                     )
             )
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.black.opacity(0.18))
+                    .offset(y: 1)
+            )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(.white.opacity(0.12))
+                    .stroke(Color.panelStroke)
             )
-            .shadow(color: .black.opacity(0.22), radius: 18, y: 10)
+            .shadow(color: .black.opacity(0.28), radius: 18, y: 10)
+    }
+}
+
+private struct SectionHeader: View {
+    let title: String
+    let detail: String?
+    let count: String?
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                if let detail {
+                    Text(detail)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer()
+
+            if let count {
+                Text(count)
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.black.opacity(0.24), in: RoundedRectangle(cornerRadius: 5))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(.white.opacity(0.08))
+                    )
+            }
+        }
+    }
+}
+
+private struct EmptyMeterState: View {
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "waveform.path.ecg")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Text("No channels reported for this group.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 12)
     }
 }
 
@@ -492,7 +521,7 @@ private struct LevelReadout: View {
             .foregroundStyle(Color.meterGreen)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 5))
+            .background(Color.black.opacity(0.38), in: RoundedRectangle(cornerRadius: 5))
             .overlay(
                 RoundedRectangle(cornerRadius: 5)
                     .stroke(.white.opacity(0.08))
@@ -517,14 +546,23 @@ private struct ControlPadButton: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
             }
-            .foregroundStyle(isOn ? .black : .primary)
+            .foregroundStyle(isOn ? .white : .primary.opacity(0.92))
             .frame(width: 76, height: 48)
-            .background(isOn ? tint : Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 6))
+            .background(
+                LinearGradient(
+                    colors: isOn
+                        ? [tint.opacity(0.95), tint.opacity(0.56)]
+                        : [Color.white.opacity(0.09), Color.white.opacity(0.045)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ),
+                in: RoundedRectangle(cornerRadius: 6)
+            )
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
-                    .stroke(isOn ? .white.opacity(0.45) : .white.opacity(0.1))
+                    .stroke(isOn ? .white.opacity(0.34) : .white.opacity(0.11))
             )
-            .shadow(color: isOn ? tint.opacity(0.35) : .clear, radius: 7)
+            .shadow(color: isOn ? tint.opacity(0.28) : .black.opacity(0.16), radius: isOn ? 8 : 4, y: 2)
         }
         .buttonStyle(.plain)
         .help(title)
@@ -574,6 +612,19 @@ private struct MeterStrip: View {
             leftDB: dB,
             controlSource: channel.controlSource
         )
+        .padding(10)
+        .background(
+            LinearGradient(
+                colors: [Color.channelSurfaceTop, Color.channelSurface],
+                startPoint: .top,
+                endPoint: .bottom
+            ),
+            in: RoundedRectangle(cornerRadius: 8)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(.white.opacity(0.1))
+        )
     }
 }
 
@@ -603,10 +654,10 @@ private struct MeterPairStrip: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(isSplit ? Color.meterAmber : Color.meterGreen)
                 .frame(width: 54, height: 20)
-                .background(.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 5))
+                .background(Color.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 5))
                 .overlay(
                     RoundedRectangle(cornerRadius: 5)
-                        .stroke((isSplit ? Color.meterAmber : Color.meterGreen).opacity(0.45))
+                        .stroke((isSplit ? Color.meterAmber : Color.meterGreen).opacity(0.5))
                 )
                 .help("Toggle mono/stereo meter view")
             }
@@ -639,7 +690,14 @@ private struct MeterPairStrip: View {
                 .padding(.bottom, hasControls ? 0 : 10)
             }
         }
-        .background(Color.channelSurface, in: RoundedRectangle(cornerRadius: 8))
+        .background(
+            LinearGradient(
+                colors: [Color.channelSurfaceTop, Color.channelSurface],
+                startPoint: .top,
+                endPoint: .bottom
+            ),
+            in: RoundedRectangle(cornerRadius: 8)
+        )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .stroke(.white.opacity(0.1))
@@ -847,61 +905,6 @@ private struct BottomOuterCornerShape: Shape {
     }
 }
 
-private struct ChannelStrip: View {
-    let title: String
-    let meterIndex: Int?
-    @ObservedObject var meters: MeterReadings
-    let level: Double
-    let setLevel: (Double) -> Void
-
-    private var meterDB: Float {
-        guard let meterIndex else { return -60 }
-        if meters.allDB.indices.contains(meterIndex) {
-            return meters.allDB[meterIndex]
-        }
-        guard meters.inputsDB.indices.contains(meterIndex) else { return -60 }
-        return meters.inputsDB[meterIndex]
-    }
-
-    var body: some View {
-        VStack(spacing: 10) {
-            Text(title)
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
-
-            ZStack(alignment: .bottom) {
-                RoundedRectangle(cornerRadius: 7)
-                    .fill(Color.black.opacity(0.26))
-
-                HStack(alignment: .bottom, spacing: 8) {
-                    if meterIndex != nil {
-                        VerticalMeter(dB: meterDB)
-                    }
-                    VerticalFader(value: level, setValue: setLevel)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 12)
-            }
-            .frame(width: 86, height: 236)
-            .overlay(
-                RoundedRectangle(cornerRadius: 7)
-                    .stroke(.white.opacity(0.1))
-            )
-
-            LevelReadout(value: level)
-                .font(.caption)
-                .frame(width: 76)
-        }
-        .padding(10)
-        .background(Color.channelSurface, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(.white.opacity(0.1))
-        )
-    }
-}
-
 private struct VerticalFader: View {
     let value: Double
     let setValue: (Double) -> Void
@@ -934,11 +937,12 @@ private struct VerticalFader: View {
                         RoundedRectangle(cornerRadius: 3)
                             .stroke(.white.opacity(0.08))
                     )
+                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
                     .overlay(alignment: .bottom) {
                         RoundedRectangle(cornerRadius: 3)
                             .fill(
                                 LinearGradient(
-                                    colors: [Color.meterGreen.opacity(0.95), Color.meterAmber.opacity(0.8)],
+                                    colors: [Color.meterGreen.opacity(0.95), Color.audientRed.opacity(0.72)],
                                     startPoint: .bottom,
                                     endPoint: .top
                                 )
@@ -993,9 +997,9 @@ private struct FaderCap: View {
             .fill(
                 LinearGradient(
                     colors: [
-                        Color(red: 0.86, green: 0.88, blue: 0.86),
-                        Color(red: 0.48, green: 0.50, blue: 0.50),
-                        Color(red: 0.20, green: 0.22, blue: 0.22),
+                        Color(red: 0.94, green: 0.95, blue: 0.93),
+                        Color(red: 0.56, green: 0.58, blue: 0.58),
+                        Color(red: 0.23, green: 0.245, blue: 0.25),
                     ],
                     startPoint: .top,
                     endPoint: .bottom
@@ -1054,7 +1058,13 @@ private struct SplitStereoMeterBar: View {
         GeometryReader { geo in
             ZStack(alignment: .bottom) {
                 RoundedRectangle(cornerRadius: 3)
-                    .fill(.black.opacity(0.45))
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.black.opacity(0.68), Color.black.opacity(0.4)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
 
                 HStack(alignment: .bottom, spacing: 1) {
                     meterFill(fraction: leftFraction, height: geo.size.height)
@@ -1081,6 +1091,7 @@ private struct SplitStereoMeterBar: View {
                 endPoint: .top
             )
             .frame(height: max(2, height * fraction))
+            .shadow(color: Color.meterGreen.opacity(0.18), radius: 3)
         }
         .frame(maxWidth: .infinity)
     }
@@ -1118,7 +1129,13 @@ private struct VerticalMeterBar: View {
         GeometryReader { geo in
             ZStack(alignment: .bottom) {
                 RoundedRectangle(cornerRadius: 3)
-                    .fill(.black.opacity(0.45))
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.black.opacity(0.68), Color.black.opacity(0.4)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
 
                 RoundedRectangle(cornerRadius: 3)
                     .fill(
@@ -1129,6 +1146,7 @@ private struct VerticalMeterBar: View {
                         )
                     )
                     .frame(height: max(2, geo.size.height * fraction))
+                    .shadow(color: Color.meterGreen.opacity(0.18), radius: 3)
                     .mask(alignment: .bottom) {
                         RoundedRectangle(cornerRadius: 3)
                     }
@@ -1142,9 +1160,18 @@ private struct VerticalMeterBar: View {
 }
 
 private extension Color {
-    static let panelTop = Color(red: 0.12, green: 0.13, blue: 0.14)
-    static let panelBottom = Color(red: 0.055, green: 0.06, blue: 0.065)
+    static let appTop = Color(red: 0.16, green: 0.17, blue: 0.18)
+    static let appBase = Color(red: 0.085, green: 0.09, blue: 0.095)
+    static let appBottom = Color(red: 0.045, green: 0.05, blue: 0.055)
+    static let headerTop = Color(red: 0.145, green: 0.15, blue: 0.16)
+    static let headerBottom = Color(red: 0.075, green: 0.08, blue: 0.088)
+    static let panelSurfaceTop = Color(red: 0.155, green: 0.162, blue: 0.17)
+    static let panelSurfaceBottom = Color(red: 0.098, green: 0.103, blue: 0.11)
+    static let panelStroke = Color.white.opacity(0.115)
+    static let controlSurface = Color(red: 0.105, green: 0.11, blue: 0.118)
+    static let audientRed = Color(red: 0.88, green: 0.16, blue: 0.13)
     static let channelSurface = Color(red: 0.10, green: 0.105, blue: 0.11)
+    static let channelSurfaceTop = Color(red: 0.135, green: 0.14, blue: 0.148)
     static let meterGreen = Color(red: 0.23, green: 0.92, blue: 0.48)
     static let meterAmber = Color(red: 1.0, green: 0.72, blue: 0.22)
     static let meterRed = Color(red: 1.0, green: 0.22, blue: 0.18)

@@ -10,7 +10,8 @@ struct MixerApp: App {
         WindowGroup("Open Audient") {
             ContentView()
                 .environmentObject(controller)
-                .frame(minWidth: 460, idealWidth: 480, minHeight: 440, idealHeight: 600)
+                .frame(minWidth: 560, idealWidth: 980, minHeight: 520, idealHeight: 760)
+                .preferredColorScheme(.dark)
                 .task { controller.start() }
         }
     }
