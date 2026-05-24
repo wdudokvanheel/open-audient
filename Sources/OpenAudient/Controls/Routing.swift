@@ -1,7 +1,9 @@
 /// Output routing matrix (extension unit `0x33`). Each output channel's source
 /// is a single byte selected via selector `0x06`, with the output index carried
 /// in the channel byte. Verified readable on the iD44 (outputs report distinct
-/// source IDs); mapping cross-checked against the MixiD project.
+/// source IDs). Main/alt routing is cross-checked against the MixiD project;
+/// cue output routing follows the official iD44 client, which writes stereo cue
+/// source pairs. Older repeated cue bytes are still recognized when reading.
 public enum Routing {
     public static let unit: UInt8 = 0x33
     public static let sourceSelector: UInt8 = 0x06
@@ -38,19 +40,25 @@ public enum Routing {
             case .altSpeaker:
                 return output.isMultiple(of: 2) ? 0x3d : 0x3e
             case .cueA:
-                return 0x19
+                return Self.cueValue(index: 0, output: output)
             case .cueB:
-                return 0x1a
+                return Self.cueValue(index: 1, output: output)
             case .cueC:
-                return 0x1f
+                return Self.cueValue(index: 2, output: output)
             case .cueD:
-                return 0x20
+                return Self.cueValue(index: 3, output: output)
             case .dawThru:
                 return UInt8(clamping: output)
             }
         }
 
         public static func matching(leftOutput: Int, leftValue: UInt8, rightValue: UInt8) -> Source? {
+            if let source = legacyCueSource(leftValue: leftValue, rightValue: rightValue) {
+                return source
+            }
+            if let source = stereoPairCueSource(leftValue: leftValue, rightValue: rightValue) {
+                return source
+            }
             if (leftValue, rightValue) == (0x1b, 0x1c) ||
                 (leftValue, rightValue) == (0x3b, 0x3c) ||
                 (leftValue, rightValue) == (0x3f, 0x40) {
@@ -59,6 +67,30 @@ public enum Routing {
             return allCases.first {
                 leftValue == $0.value(forOutput: leftOutput) &&
                 rightValue == $0.value(forOutput: leftOutput + 1)
+            }
+        }
+
+        private static func legacyCueSource(leftValue: UInt8, rightValue: UInt8) -> Source? {
+            switch (leftValue, rightValue) {
+            case (0x19, 0x19): return .cueA
+            case (0x1a, 0x1a): return .cueB
+            case (0x1f, 0x1f): return .cueC
+            case (0x20, 0x20): return .cueD
+            default: return nil
+            }
+        }
+
+        private static func cueValue(index: Int, output: Int) -> UInt8 {
+            UInt8(0x2e + index * 2 + (output.isMultiple(of: 2) ? 0 : 1))
+        }
+
+        private static func stereoPairCueSource(leftValue: UInt8, rightValue: UInt8) -> Source? {
+            switch (leftValue, rightValue) {
+            case (0x2e, 0x2f): return .cueA
+            case (0x30, 0x31): return .cueB
+            case (0x32, 0x33): return .cueC
+            case (0x34, 0x35): return .cueD
+            default: return nil
             }
         }
     }

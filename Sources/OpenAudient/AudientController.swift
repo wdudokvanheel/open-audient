@@ -38,6 +38,8 @@ public final class AudientController: ObservableObject {
     @Published public var mixerLevelsDB: [Double] = []
     @Published public var dawReturnLevelsDB: [Double] = []
     @Published public var mainMixSourceLevelsDB: [Double] = []
+    @Published public var sendSourceLevelsDB: [Mixer.SendBus: [Double]] = [:]
+    @Published public var selectedSendBus: Mixer.SendBus = .main
     @Published public var mutedMainMixSources: Set<Int> = []
     @Published public var soloedMainMixSources: Set<Int> = []
     @Published public var outputRouteSources: [UInt8?] = []
@@ -107,6 +109,8 @@ public final class AudientController: ObservableObject {
         meters.allDB = []
         meters.outputsDB = []
         mainMixSourceLevelsDB = []
+        sendSourceLevelsDB = [:]
+        selectedSendBus = .main
         mutedMainMixSources = []
         soloedMainMixSources = []
         outputRouteSources = []
@@ -147,33 +151,32 @@ public final class AudientController: ObservableObject {
         polarity = (try? await device.read(Monitor.polarity)) ?? polarity
         talkback = (try? await device.read(Monitor.talkback)) ?? talkback
         mainVolumeDB = (try? await device.read(Monitor.mainVolume)) ?? mainVolumeDB
+        let outputs = model?.totalOutputs ?? 0
+        outputRouteSources = await readOutputRouteSources(outputs: outputs)
 
         let inputs = model?.micInputs ?? 0
-        let sourceCount = model?.peakMeterChannels ?? max(inputs, 1)
-        var sourceLevels = Array(repeating: -60.0, count: sourceCount)
-        for source in controllableMainMixSources {
-            let left = Mixer.mainSend(source: UInt8(source)).left
-            sourceLevels[source] = (try? await device.read(left)) ?? -60
+        let sourceCount = max(model?.peakMeterChannels ?? max(inputs, 1), (controllableMainMixSources.max() ?? 0) + 1)
+        let sourceLevels = sendSourceLevelsDB[.main] ?? Array(repeating: -60.0, count: sourceCount)
+        if sendSourceLevelsDB[.main] == nil {
+            sendSourceLevelsDB[.main] = sourceLevels
         }
         mainMixSourceLevelsDB = sourceLevels
         mutedMainMixSources = mutedMainMixSources.intersection(controllableMainMixSources)
 
         var levels: [Double] = []
         for input in 0..<inputs {
-            levels.append(sourceLevels.indices.contains(input) ? sourceLevels[input] : -128)
+            let source = model?.mixerSource(forPeakChannel: input)
+            levels.append(source.map { sourceLevels.indices.contains($0) ? sourceLevels[$0] : -128 } ?? -128)
         }
         mixerLevelsDB = levels
 
-        let inputCount = UInt8(model?.totalInputs ?? inputs)
         var dawLevels: [Double] = []
         for pair in 0..<Mixer.dawReturnPairs {
-            let source = Int(inputCount) + pair * 2
-            dawLevels.append(sourceLevels.indices.contains(source) ? sourceLevels[source] : -128)
+            let peakChannel = (model?.totalInputs ?? inputs) + pair * 2
+            let source = model?.mixerSource(forPeakChannel: peakChannel)
+            dawLevels.append(source.map { sourceLevels.indices.contains($0) ? sourceLevels[$0] : -128 } ?? -128)
         }
         dawReturnLevelsDB = dawLevels
-
-        let outputs = model?.totalOutputs ?? 0
-        outputRouteSources = await readOutputRouteSources(outputs: outputs)
     }
 
     // MARK: Actions (optimistic: update state now, write in the background)
@@ -188,16 +191,21 @@ public final class AudientController: ObservableObject {
     /// Set an input's level in the main mix (writes both L and R sends).
     public func setMixerLevel(input: Int, db: Double) {
         if input < mixerLevelsDB.count { mixerLevelsDB[input] = db }
-        setMainMixSourceLevel(source: input, db: db)
+        guard let source = model?.mixerSource(forPeakChannel: input) else { return }
+        setMainMixSourceLevel(source: source, db: db)
     }
 
     /// Set a DAW return pair's level in the main mix (writes both L and R sends).
     public func setDAWReturnLevel(pair: Int, db: Double) {
         if pair < dawReturnLevelsDB.count { dawReturnLevelsDB[pair] = db }
-        let inputCount = UInt8(model?.totalInputs ?? mixerLevelsDB.count)
-        let sources = Mixer.dawReturnSources(pair: UInt8(pair), afterInputCount: inputCount)
-        setMainMixSourceLevel(source: Int(sources.left), db: db)
-        setMainMixSourceLevel(source: Int(sources.right), db: db)
+        guard let model else { return }
+        let peakChannel = model.totalInputs + pair * 2
+        if let left = model.mixerSource(forPeakChannel: peakChannel) {
+            setMainMixSourceLevel(source: left, db: db)
+        }
+        if let right = model.mixerSource(forPeakChannel: peakChannel + 1) {
+            setMainMixSourceLevel(source: right, db: db)
+        }
     }
 
     public func setMainMixSourceLevel(source: Int, db: Double) {
@@ -216,6 +224,44 @@ public final class AudientController: ObservableObject {
         setMainMixSourceLevel(source: source, db: db)
         if isControllableMainMixSource(source + 1) {
             setMainMixSourceLevel(source: source + 1, db: db)
+        }
+    }
+
+    public func setSelectedSendBus(_ bus: Mixer.SendBus) {
+        guard bus.hasSourceLevelControls else { return }
+        selectedSendBus = bus
+        if sendSourceLevelsDB[bus] == nil {
+            let sourceCount = max(model?.peakMeterChannels ?? 1, (controllableMainMixSources.max() ?? 0) + 1)
+            sendSourceLevelsDB[bus] = Array(repeating: -60.0, count: sourceCount)
+        }
+    }
+
+    public func sendSourceLevel(source: Int, bus: Mixer.SendBus) -> Double {
+        guard let levels = sendSourceLevelsDB[bus], levels.indices.contains(source) else { return -60 }
+        return levels[source]
+    }
+
+    public func canControlSendSource(_ source: Int, bus: Mixer.SendBus) -> Bool {
+        guard isControllableMainMixSource(source), isSafeMixerSource(source) else { return false }
+        return sendControls(source: source, bus: bus) != nil
+    }
+
+    public func setSendSourceLevel(source: Int, bus: Mixer.SendBus, db: Double) {
+        guard canControlSendSource(source, bus: bus) else { return }
+        setSendSourceLevelLocally(source: source, bus: bus, db: db)
+        if bus == .main, db > -60 { mutedMainMixSources.remove(source) }
+        guard let device else { return }
+        guard let send = sendControls(source: source, bus: bus) else { return }
+        Task {
+            _ = try? await device.write(send.left, db)
+            _ = try? await device.write(send.right, db)
+        }
+    }
+
+    public func setSendStereoPairLevel(pairStartingAt source: Int, bus: Mixer.SendBus, db: Double) {
+        setSendSourceLevel(source: source, bus: bus, db: db)
+        if canControlSendSource(source + 1, bus: bus) {
+            setSendSourceLevel(source: source + 1, bus: bus, db: db)
         }
     }
 
@@ -298,18 +344,31 @@ public final class AudientController: ObservableObject {
     }
 
     private func setMainMixSourceLevelLocally(source: Int, db: Double) {
+        setSendSourceLevelLocally(source: source, bus: .main, db: db)
+    }
+
+    private func setSendSourceLevelLocally(source: Int, bus: Mixer.SendBus, db: Double) {
         guard source >= 0 else { return }
+        var levels = sendSourceLevelsDB[bus] ?? []
+        if source >= levels.count {
+            levels.append(contentsOf: Array(repeating: -128, count: source - levels.count + 1))
+        }
+        levels[source] = db
+        sendSourceLevelsDB[bus] = levels
+        guard bus == .main else { return }
         if source >= mainMixSourceLevelsDB.count {
             mainMixSourceLevelsDB.append(contentsOf: Array(repeating: -128, count: source - mainMixSourceLevelsDB.count + 1))
         }
         mainMixSourceLevelsDB[source] = db
-        if source < mixerLevelsDB.count {
-            mixerLevelsDB[source] = db
-        }
-        if let inputCount = model?.totalInputs {
-            let dawPair = (source - inputCount) / 2
-            if source >= inputCount, dawReturnLevelsDB.indices.contains(dawPair) {
-                dawReturnLevelsDB[dawPair] = db
+        if let peakChannel = model?.peakChannel(forMixerSource: source) {
+            if peakChannel < mixerLevelsDB.count {
+                mixerLevelsDB[peakChannel] = db
+            }
+            if let inputCount = model?.totalInputs, peakChannel >= inputCount {
+                let dawPair = (peakChannel - inputCount) / 2
+                if dawReturnLevelsDB.indices.contains(dawPair) {
+                    dawReturnLevelsDB[dawPair] = db
+                }
             }
         }
     }
@@ -317,7 +376,8 @@ public final class AudientController: ObservableObject {
     private func writeMainMixSourceLevel(source: Int, db: Double) {
         guard isControllableMainMixSource(source) else { return }
         guard let device else { return }
-        let send = Mixer.mainSend(source: UInt8(source))
+        let send = sendControls(source: source, bus: .main)
+        guard let send else { return }
         Task {
             _ = try? await device.write(send.left, db)
             _ = try? await device.write(send.right, db)
@@ -343,12 +403,13 @@ public final class AudientController: ObservableObject {
 
     public var controllableMainMixSources: Set<Int> {
         guard let model else { return [] }
-        var sources = Set(0..<model.micInputs)
-        let inputCount = model.totalInputs
-        for pair in 0..<Mixer.dawReturnPairs {
-            let left = inputCount + pair * 2
-            sources.insert(left)
-            sources.insert(left + 1)
+        let displayedDAWChannels = Mixer.dawReturnPairs * 2
+        let peakChannels = 0..<(model.totalInputs + displayedDAWChannels)
+        var sources: Set<Int> = []
+        for peakChannel in peakChannels {
+            if let source = model.mixerSource(forPeakChannel: peakChannel) {
+                sources.insert(source)
+            }
         }
         return sources.filter(isSafeMixerSource)
     }
@@ -357,8 +418,29 @@ public final class AudientController: ObservableObject {
         controllableMainMixSources.contains(source)
     }
 
+    public func mixerSource(forPeakChannel index: Int) -> Int? {
+        guard let source = model?.mixerSource(forPeakChannel: index),
+              isControllableMainMixSource(source) else { return nil }
+        return source
+    }
+
+    private func sendControls(source: Int, bus: Mixer.SendBus) -> (left: FixedQ88Control, right: FixedQ88Control)? {
+        if isDAWInputMixerSource(source) {
+            return Mixer.dawSend(source: UInt8(source), bus: bus)
+        }
+        return Mixer.send(source: UInt8(source), bus: bus)
+    }
+
+    private func isDAWInputMixerSource(_ source: Int) -> Bool {
+        guard let model else { return false }
+        let firstDAWSource = model.totalInputs
+        return source >= firstDAWSource && source < firstDAWSource + Mixer.dawReturnPairs * 2
+    }
+
     private func isSafeMixerSource(_ source: Int) -> Bool {
-        source >= 0 && source * Int(Mixer.slotsPerInput) + Int(Mixer.mainRightSlot) <= Int(UInt8.max)
+        guard source >= 0 else { return false }
+        let stride = isDAWInputMixerSource(source) ? Mixer.slotsPerDAWInput : Mixer.slotsPerInput
+        return source * Int(stride) + Int(Mixer.mainRightSlot) <= Int(UInt8.max)
     }
 
     private func apply<C: Control>(_ control: C, _ value: C.Value, update: () -> Void) {

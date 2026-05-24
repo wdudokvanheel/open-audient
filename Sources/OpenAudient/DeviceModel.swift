@@ -37,6 +37,49 @@ public struct DeviceModel: Sendable, Equatable, Identifiable {
         }
     }
 
+    /// Map a visible peak-meter slot to the extension-unit mixer source id used
+    /// by this app's direct fader writes. Hardware inputs use their visible
+    /// peak index; DAW input faders use the source range following hardware
+    /// inputs, with a DAW-specific wide output stride for Main Mix writes.
+    public func mixerSource(forPeakChannel index: Int) -> Int? {
+        guard index >= 0 else { return nil }
+        if index < totalInputs {
+            return index
+        }
+
+        let dawIndex = index - totalInputs
+        guard dawIndex < dawPlaybackChannels else { return nil }
+        return totalInputs + dawIndex
+    }
+
+    public func peakChannel(forMixerSource source: Int) -> Int? {
+        guard source >= 0 else { return nil }
+        if source < totalInputs {
+            return source
+        }
+
+        let dawIndex = source - totalInputs
+        guard dawIndex >= 0, dawIndex < dawPlaybackChannels else { return nil }
+        return totalInputs + dawIndex
+    }
+
+    /// Direct mixer source for a physical analogue input strip.
+    public func mixerSource(forAnalogInput input: Int) -> Int? {
+        guard input >= 0, input < micInputs else { return nil }
+        return input
+    }
+
+    /// Direct mixer source for a physical analogue input strip on a send bus.
+    public func mixerSource(forAnalogInput input: Int, sendBus: Mixer.SendBus) -> Int? {
+        guard input >= 0, input < micInputs else { return nil }
+        switch sendBus {
+        case .cueA, .cueB:
+            return input + 1
+        case .main, .cueC, .cueD:
+            return input
+        }
+    }
+
     public init(
         name: String, productID: Int,
         micInputs: Int, digitalInputs: Int,

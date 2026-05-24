@@ -10,12 +10,15 @@ public enum CommandRunner {
             switch command {
             case "cut":      return try await cut(Array(arguments.dropFirst()))
             case "dump":     return try await dump()
+            case "routes":   return try await routes()
             case "list":     return list()
             case "watch":    await watch(); return 0
             case "meters":   return try await meters()
             case "get":      return try await get(Array(arguments.dropFirst()))
             case "set":      return try await set(Array(arguments.dropFirst()))
             case "probe":    return try await probe(Array(arguments.dropFirst()))
+            case "mixer-scan": return try await mixerScan(Array(arguments.dropFirst()))
+            case "mixer-set": return try await mixerSet(Array(arguments.dropFirst()))
             case "meter-probe": return try await meterProbe(Array(arguments.dropFirst()))
             case "help", "-h", "--help": printUsage(); return 0
             default:
@@ -56,6 +59,18 @@ public enum CommandRunner {
         for ch in 0..<UInt8(12) { await row("Mixer ch \(ch)", String(format: "%.1f dB", try await device.read(Mixer.level(channel: ch)))) }
         print("— Routing —")
         for out in 0..<UInt8(device.model.totalOutputs) { await row("Output \(out)", String(format: "0x%02x", try await device.read(Routing.source(output: out)))) }
+        return 0
+    }
+
+    private static func routes() async throws -> Int32 {
+        let device = try await AudientDevice.openFirst()
+        print("\(device.model.name) — Output routing —")
+        for output in stride(from: 0, to: device.model.totalOutputs, by: 2) {
+            let left = try await device.read(Routing.source(output: UInt8(output)))
+            let right = try await device.read(Routing.source(output: UInt8(output + 1)))
+            let source = Routing.Source.matching(leftOutput: output, leftValue: left, rightValue: right)?.title ?? "Unknown"
+            print(String(format: "Output %02d/%02d  %@/%@  %@", output, output + 1, hexByte(UInt32(left)), hexByte(UInt32(right)), source))
+        }
         return 0
     }
 
@@ -134,6 +149,41 @@ public enum CommandRunner {
         return 0
     }
 
+    private static func mixerScan(_ args: [String]) async throws -> Int32 {
+        let unit = UInt8(hex(args.first ?? "3d") ?? UInt32(Mixer.secondaryUnit))
+        let start = UInt8(hex(args.dropFirst().first ?? "0") ?? 0)
+        let defaultCount = unit == Mixer.secondaryUnit ? UInt32(Mixer.secondaryChannelCount) : 0x50
+        let count = Int(hex(args.dropFirst(2).first ?? String(defaultCount, radix: 16)) ?? defaultCount)
+        let device = try await AudientDevice.openFirst()
+        print("mixer scan: unit \(hexByte(UInt32(unit))) channels \(hexByte(UInt32(start)))...\(hexByte(UInt32(start) + UInt32(max(count - 1, 0))))")
+        for offset in 0..<count {
+            let channel = start &+ UInt8(offset)
+            do {
+                let bytes = try await device.getRaw(unit: unit, selector: Mixer.levelSelector, channel: channel, length: 2)
+                print("  ch \(hexByte(UInt32(channel))) -> \(bytesHex(bytes))")
+            } catch {
+                print("  ch \(hexByte(UInt32(channel))) -> n/a, stopping")
+                break
+            }
+        }
+        return 0
+    }
+
+    private static func mixerSet(_ args: [String]) async throws -> Int32 {
+        guard args.count >= 3, let unitValue = hex(args[0]), let channelValue = hex(args[1]), let db = Double(args[2]) else {
+            FileHandle.standardError.write(Data("usage: oa mixer-set <unit> <channel> <dB>\n".utf8)); return 1
+        }
+        let unit = UInt8(unitValue)
+        let channel = UInt8(channelValue)
+        let device = try await AudientDevice.openFirst()
+        let control = Mixer.level(unit: unit, channel: channel)
+        let before = (try? await device.read(control)).map { String(format: "%.1f dB", $0) } ?? "n/a"
+        try await device.write(control, db)
+        let after = (try? await device.read(control)).map { String(format: "%.1f dB", $0) } ?? "n/a"
+        print("Mixer \(hexByte(UInt32(unit))):\(hexByte(UInt32(channel))) \(before) -> \(after)")
+        return 0
+    }
+
     private static func meterProbe(_ args: [String]) async throws -> Int32 {
         let units = parseList(args.first, default: [0x3C])
         let offsets = parseList(args.dropFirst().first, default: [0])
@@ -174,12 +224,15 @@ public enum CommandRunner {
           oa                                 launch the GUI
           oa cut [status|on|off|toggle]
           oa dump
+          oa routes
           oa list
           oa watch
           oa meters
           oa get <unit> <selector> <len> [channel]
           oa set <unit> <selector> <channel> <byte[,byte…]>
           oa probe <unit> [firstSel] [lastSel]
+          oa mixer-scan [unit] [startChannel] [count]
+          oa mixer-set <unit> <channel> <dB>
           oa meter-probe [units] [offsets] [len] [intervalMS]
              units/offsets are comma-separated hex lists; defaults to known-good 0x3c/0x0000/0x58
         (numeric args are hex; quit the Audient iD app first)

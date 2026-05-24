@@ -262,7 +262,7 @@ struct ContentView: View {
                                 ForEach(Routing.Source.allCases) { source in
                                     Text(source.title)
                                         .font(.caption2.weight(.bold))
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(source.uiColor)
                                         .multilineTextAlignment(.center)
                                         .lineLimit(2)
                                         .minimumScaleFactor(0.72)
@@ -284,34 +284,25 @@ struct ContentView: View {
 
     private var peakMeterSections: some View {
         VStack(spacing: 18) {
-            meterPanel(
-                title: "Analog Inputs",
-                channels: analogMeterChannels
-            )
-            groupedMeterPanel(
-                title: "Digital Inputs",
-                channels: digitalMeterChannels,
-                stereoTitle: { "DIG \($0 * 2 + 1)+\($0 * 2 + 2)" }
-            )
-            groupedMeterPanel(
-                title: "DAW Input",
-                channels: dawPlaybackMeterChannels,
-                stereoTitle: { "DAW \($0 * 2 + 1)+\($0 * 2 + 2)" }
-            )
+            cueSendFaderPanel
             groupedMeterPanel(
                 title: "Internal Peaks",
+                detail: nil,
                 channels: internalPeakChannels,
                 stereoTitle: internalPeakPairTitle
             )
             groupedMeterPanel(
                 title: "Hardware Outputs",
+                detail: nil,
                 channels: outputMeterChannels,
                 stereoTitle: hardwareOutputPairTitle
             )
             groupedMeterPanel(
                 title: "Cues",
+                detail: nil,
                 channels: cueMeterChannels,
-                stereoTitle: cuePairTitle
+                stereoTitle: cuePairTitle,
+                pairTint: cuePairTint
             )
 
             if !unmappedMeterChannels.isEmpty {
@@ -323,52 +314,165 @@ struct ContentView: View {
         }
     }
 
-    private func meterPanel(title: String, channels: [MeterChannel]) -> some View {
+    private var cueSendFaderPanel: some View {
         Panel {
-            VStack(alignment: .leading, spacing: 12) {
-                SectionHeader(title: title, detail: nil, count: "\(channels.count) channels")
+            VStack(alignment: .leading, spacing: 14) {
+                SectionHeader(
+                    title: "Input Sends",
+                    detail: "Faders control \(controller.selectedSendBus.longTitle)",
+                    count: nil
+                )
 
-                if channels.isEmpty {
-                    EmptyMeterState()
-                } else {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(alignment: .top, spacing: 10) {
-                            ForEach(channels) { channel in
-                                MeterStrip(channel: channel, meters: controller.meters)
+                HStack(spacing: 0) {
+                    ForEach(Mixer.SendBus.allCases) { bus in
+                        SendBusButton(
+                            title: bus.longTitle,
+                            tint: bus.uiColor,
+                            isSelected: controller.selectedSendBus == bus,
+                            isEnabled: bus.hasSourceLevelControls
+                        ) {
+                            controller.setSelectedSendBus(bus)
+                        }
+                    }
+                }
+                .padding(3)
+                .background(Color.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 7))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7)
+                        .stroke(Color.white.opacity(0.09))
+                )
+
+                VStack(spacing: 10) {
+                    Grid(horizontalSpacing: 10, verticalSpacing: 10) {
+                        GridRow(alignment: .top) {
+                            meterSegment(
+                                title: "Analog Inputs",
+                                detail: activeSendDetail,
+                                count: "\(analogMeterChannels.count) channels"
+                            ) {
+                                meterStripScroller(channels: analogMeterChannels)
+                            }
+                            .gridCellColumns(2)
+
+                            meterSegment(
+                                title: "DAW Input",
+                                detail: activeSendDetail,
+                                count: "\(stereoPairs(from: dawPlaybackMeterChannels, title: { "DAW \($0 * 2 + 1)+\($0 * 2 + 2)" }, tint: { _ in nil }).count) pairs"
+                            ) {
+                                meterPairScroller(
+                                    channels: dawPlaybackMeterChannels,
+                                    stereoTitle: { "DAW \($0 * 2 + 1)+\($0 * 2 + 2)" }
+                                )
                             }
                         }
-                        .padding(.bottom, 2)
+                    }
+
+                    meterSegment(
+                        title: "Digital Inputs",
+                        detail: activeSendDetail,
+                        count: "\(stereoPairs(from: digitalMeterChannels, title: { "DIG \($0 * 2 + 1)+\($0 * 2 + 2)" }, tint: { _ in nil }).count) pairs"
+                    ) {
+                        meterPairScroller(
+                            channels: digitalMeterChannels,
+                            stereoTitle: { "DIG \($0 * 2 + 1)+\($0 * 2 + 2)" }
+                        )
                     }
                 }
             }
         }
     }
 
+    private var activeSendDetail: String {
+        "\(controller.selectedSendBus.longTitle) send"
+    }
+
+    private func meterPanel(title: String, detail: String? = nil, channels: [MeterChannel]) -> some View {
+        Panel {
+            VStack(alignment: .leading, spacing: 12) {
+                SectionHeader(title: title, detail: detail, count: "\(channels.count) channels")
+
+                meterStripScroller(channels: channels)
+            }
+        }
+    }
+
     private func groupedMeterPanel(
         title: String,
+        detail: String? = nil,
         channels: [MeterChannel],
-        stereoTitle: @escaping (Int) -> String
+        stereoTitle: @escaping (Int) -> String,
+        pairTint: @escaping (Int) -> Color? = { _ in nil }
     ) -> some View {
         Panel {
             VStack(alignment: .leading, spacing: 12) {
                 SectionHeader(
                     title: title,
-                    detail: nil,
-                    count: "\(stereoPairs(from: channels, title: stereoTitle).count) pairs"
+                    detail: detail,
+                    count: "\(stereoPairs(from: channels, title: stereoTitle, tint: pairTint).count) pairs"
                 )
 
-                if channels.isEmpty {
-                    EmptyMeterState()
-                } else {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(alignment: .top, spacing: 10) {
-                            ForEach(stereoPairs(from: channels, title: stereoTitle)) { pair in
-                                MeterPairStrip(pair: pair, meters: controller.meters)
-                            }
-                        }
-                        .padding(.bottom, 2)
+                meterPairScroller(channels: channels, stereoTitle: stereoTitle, pairTint: pairTint)
+            }
+        }
+    }
+
+    private func meterSegment<Content: View>(
+        title: String,
+        detail: String?,
+        count: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeader(title: title, detail: detail, count: count)
+            content()
+        }
+        .padding(14)
+        .background(
+            LinearGradient(
+                colors: [Color.segmentSurfaceTop, Color.segmentSurfaceBottom],
+                startPoint: .top,
+                endPoint: .bottom
+            ),
+            in: RoundedRectangle(cornerRadius: 7)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 7)
+                .stroke(Color.white.opacity(0.075))
+        )
+    }
+
+    @ViewBuilder
+    private func meterStripScroller(channels: [MeterChannel]) -> some View {
+        if channels.isEmpty {
+            EmptyMeterState()
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 10) {
+                    ForEach(channels) { channel in
+                        MeterStrip(channel: channel, meters: controller.meters)
                     }
                 }
+                .padding(.bottom, 2)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func meterPairScroller(
+        channels: [MeterChannel],
+        stereoTitle: @escaping (Int) -> String,
+        pairTint: @escaping (Int) -> Color? = { _ in nil }
+    ) -> some View {
+        if channels.isEmpty {
+            EmptyMeterState()
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 10) {
+                    ForEach(stereoPairs(from: channels, title: stereoTitle, tint: pairTint)) { pair in
+                        MeterPairStrip(pair: pair, meters: controller.meters)
+                    }
+                }
+                .padding(.bottom, 2)
             }
         }
     }
@@ -378,8 +482,13 @@ struct ContentView: View {
         let available = displayedPeakCount
         let end = min(model.micInputs, available)
         guard end > 0 else { return [] }
-        return meterChannels(in: 0..<end, controlled: controller.isControllableMainMixSource) { index in
-            "IN \(index + 1)"
+        return (0..<end).map { index in
+            let source = model.mixerSource(forAnalogInput: index, sendBus: controller.selectedSendBus)
+            return MeterChannel(
+                index: index,
+                title: "IN \(index + 1)",
+                controlSource: source.flatMap { controller.isControllableMainMixSource($0) ? $0 : nil }
+            )
         }
     }
 
@@ -505,6 +614,10 @@ struct ContentView: View {
         return cueOutputPairTitle(leftIndex: left, model: model) ?? outputPairTitle(leftIndex: left, rightIndex: left + 1)
     }
 
+    private func cuePairTint(at pair: Int) -> Color? {
+        cueColor(cuePairTitle(at: pair))
+    }
+
     private func outputPairTitle(leftIndex left: Int, rightIndex right: Int) -> String {
         guard let model = controller.model else { return "OUT \(left + 1)+\(right + 1)" }
         if let cueTitle = cueOutputPairTitle(leftIndex: left, model: model) {
@@ -591,14 +704,31 @@ struct ContentView: View {
     }
 
     private func meterChannels(in range: Range<Int>, controlled: (Int) -> Bool = { _ in false }, title: (Int) -> String) -> [MeterChannel] {
-        range.map { MeterChannel(index: $0, title: title($0), controlSource: controlled($0) ? $0 : nil) }
+        range.map { index in
+            let source = controller.mixerSource(forPeakChannel: index)
+            return MeterChannel(
+                index: index,
+                title: title(index),
+                controlSource: source.flatMap { controlled($0) ? $0 : nil }
+            )
+        }
     }
 
-    private func stereoPairs(from channels: [MeterChannel], title: (Int) -> String) -> [MeterChannelPair] {
+    private func stereoPairs(
+        from channels: [MeterChannel],
+        title: (Int) -> String,
+        tint: (Int) -> Color?
+    ) -> [MeterChannelPair] {
         stride(from: 0, to: channels.count, by: 2).map { offset in
             let left = channels[offset]
             let right = channels.indices.contains(offset + 1) ? channels[offset + 1] : nil
-            return MeterChannelPair(id: left.id, title: title(offset / 2), left: left, right: right)
+            return MeterChannelPair(
+                id: left.id,
+                title: title(offset / 2),
+                tint: tint(offset / 2),
+                left: left,
+                right: right
+            )
         }
     }
 }
@@ -740,6 +870,52 @@ private struct ControlPadButton: View {
     }
 }
 
+private struct SendBusButton: View {
+    let title: String
+    let tint: Color
+    let isSelected: Bool
+    let isEnabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(isSelected ? tint : tint.opacity(isEnabled ? 0.38 : 0.16))
+                    .frame(width: 8, height: 8)
+                    .shadow(color: isSelected ? tint.opacity(0.55) : .clear, radius: 4)
+
+                Text(title)
+                    .font(.caption.weight(.bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+            }
+            .foregroundStyle(isSelected ? .white : .secondary.opacity(isEnabled ? 1.0 : 0.45))
+            .frame(maxWidth: .infinity)
+            .frame(height: 32)
+            .contentShape(Rectangle())
+            .background(
+                LinearGradient(
+                    colors: isSelected
+                        ? [tint.opacity(0.42), tint.opacity(0.18)]
+                        : [Color.clear, Color.clear],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ),
+                in: RoundedRectangle(cornerRadius: 5)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5)
+                    .stroke(isSelected ? tint.opacity(0.62) : Color.clear)
+            )
+        }
+        .disabled(!isEnabled)
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .help(isEnabled ? title : "\(title) source fader map is not verified yet")
+    }
+}
+
 private enum MeterBank: Int {
     case inputPlayback
     case outputs
@@ -776,7 +952,7 @@ private struct OutputRoutingRow: View {
                 )
 
             ForEach(Routing.Source.allCases) { source in
-                RoutingSourceButton(isSelected: selectedSource == source) {
+                RoutingSourceButton(tint: source.uiColor, isSelected: selectedSource == source) {
                     controller.setOutputRoute(pairStartingAt: pair.leftOutput, source: source)
                 }
             }
@@ -785,6 +961,7 @@ private struct OutputRoutingRow: View {
 }
 
 private struct RoutingSourceButton: View {
+    let tint: Color
     let isSelected: Bool
     let action: () -> Void
 
@@ -795,7 +972,7 @@ private struct RoutingSourceButton: View {
                     .fill(
                         LinearGradient(
                             colors: isSelected
-                                ? [Color.white.opacity(0.96), Color.white.opacity(0.55)]
+                                ? [tint.opacity(0.96), tint.opacity(0.55)]
                                 : [Color.black.opacity(0.58), Color.black.opacity(0.34)],
                             startPoint: .top,
                             endPoint: .bottom
@@ -804,9 +981,9 @@ private struct RoutingSourceButton: View {
                     .frame(width: 15, height: 15)
                     .overlay(
                         Circle()
-                            .stroke(isSelected ? Color.white.opacity(0.75) : Color.white.opacity(0.13), lineWidth: 1)
+                            .stroke(isSelected ? tint.opacity(0.75) : Color.white.opacity(0.13), lineWidth: 1)
                     )
-                    .shadow(color: isSelected ? Color.white.opacity(0.28) : .black.opacity(0.28), radius: isSelected ? 5 : 2)
+                    .shadow(color: isSelected ? tint.opacity(0.35) : .black.opacity(0.28), radius: isSelected ? 5 : 2)
 
                 if isSelected {
                     Circle()
@@ -840,6 +1017,7 @@ private struct MeterChannel: Identifiable {
 private struct MeterChannelPair: Identifiable {
     let id: Int
     let title: String
+    let tint: Color?
     let left: MeterChannel
     let right: MeterChannel?
 }
@@ -853,13 +1031,26 @@ private struct MeterStrip: View {
     }
 
     var body: some View {
-        MixerMeterModule(
-            title: channel.title,
-            subtitle: nil,
-            leftDB: dB,
-            controlSource: channel.controlSource
-        )
-        .padding(10)
+        VStack(spacing: 10) {
+            VStack(spacing: 6) {
+                Text(channel.title)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                MeterModePill(title: "Mono", tint: .secondary, isEnabled: false)
+            }
+            .padding(.top, 10)
+
+            MixerMeterModule(
+                title: nil,
+                subtitle: nil,
+                leftDB: dB,
+                controlSource: channel.controlSource
+            )
+            .padding(.horizontal, 10)
+            .padding(.bottom, 10)
+        }
         .background(
             LinearGradient(
                 colors: [Color.channelSurfaceTop, Color.channelSurface],
@@ -890,22 +1081,20 @@ private struct MeterPairStrip: View {
                 VStack(spacing: 2) {
                     Text(pair.title)
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(pair.tint ?? .secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                 }
-                Button(isSplit ? "Mono" : "Stereo") {
+                Button {
                     isSplit.toggle()
+                } label: {
+                    MeterModePill(
+                        title: isSplit ? "Mono" : "Stereo",
+                        tint: isSplit ? Color.meterAmber : Color.meterGreen,
+                        isEnabled: true
+                    )
                 }
-                .font(.caption2.weight(.bold))
                 .buttonStyle(.plain)
-                .foregroundStyle(isSplit ? Color.meterAmber : Color.meterGreen)
-                .frame(width: 54, height: 20)
-                .background(Color.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 5))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5)
-                        .stroke((isSplit ? Color.meterAmber : Color.meterGreen).opacity(0.5))
-                )
                 .help("Toggle mono/stereo meter view")
             }
             .frame(width: isSplit ? 150 : 70)
@@ -952,6 +1141,24 @@ private struct MeterPairStrip: View {
     }
 }
 
+private struct MeterModePill: View {
+    let title: String
+    let tint: Color
+    let isEnabled: Bool
+
+    var body: some View {
+        Text(title)
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(tint.opacity(isEnabled ? 1.0 : 0.55))
+            .frame(width: 54, height: 20)
+            .background(Color.black.opacity(isEnabled ? 0.3 : 0.18), in: RoundedRectangle(cornerRadius: 5))
+            .overlay(
+                RoundedRectangle(cornerRadius: 5)
+                    .stroke(tint.opacity(isEnabled ? 0.5 : 0.18))
+            )
+    }
+}
+
 private struct CompactMeterStrip: View {
     let channel: MeterChannel
     @ObservedObject var meters: MeterReadings
@@ -988,8 +1195,13 @@ private struct MixerMeterModule: View {
 
     private var level: Double {
         guard let source = controlSource,
-              controller.mainMixSourceLevelsDB.indices.contains(source) else { return -60 }
-        return controller.mainMixSourceLevelsDB[source]
+              controller.canControlSendSource(source, bus: controller.selectedSendBus) else { return -60 }
+        return controller.sendSourceLevel(source: source, bus: controller.selectedSendBus)
+    }
+
+    private var hasSendControl: Bool {
+        guard let source = controlSource else { return false }
+        return controller.canControlSendSource(source, bus: controller.selectedSendBus)
     }
 
     private var isMuted: Bool {
@@ -1031,7 +1243,9 @@ private struct MixerMeterModule: View {
                     }
 
                     if controlSource != nil {
-                        VerticalFader(value: level, setValue: setLevel)
+                        VerticalFader(value: level, tint: controller.selectedSendBus.uiColor, setValue: setLevel)
+                            .disabled(!hasSendControl)
+                            .opacity(hasSendControl ? 1 : 0.35)
                     }
                 }
                 .padding(.horizontal, controlSource == nil ? 14 : 10)
@@ -1040,16 +1254,31 @@ private struct MixerMeterModule: View {
                 .frame(height: controlSource == nil ? 236 : 198)
 
                 if controlSource != nil {
-                    HStack(spacing: 0) {
-                        MeterActionButton(title: "M", isOn: isMuted, tint: .meterAmber, side: .left) {
-                            setMuted(!isMuted)
+                    if controller.selectedSendBus == .main {
+                        HStack(spacing: 0) {
+                            MeterActionButton(title: "M", isOn: isMuted, tint: .meterAmber, side: .left) {
+                                setMuted(!isMuted)
+                            }
+                            MeterActionButton(title: "S", isOn: isSoloed, tint: .meterGreen, side: .right) {
+                                setSoloed(!isSoloed)
+                            }
                         }
-                        MeterActionButton(title: "S", isOn: isSoloed, tint: .meterGreen, side: .right) {
-                            setSoloed(!isSoloed)
-                        }
+                        .frame(height: 32)
+                        .padding(.top, 6)
+                    } else {
+                        Text(controller.selectedSendBus.longTitle)
+                            .font(.caption2.weight(.black))
+                            .foregroundStyle(controller.selectedSendBus.uiColor)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(controller.selectedSendBus.uiColor.opacity(0.12))
+                            .overlay(alignment: .top) {
+                                Rectangle()
+                                    .fill(controller.selectedSendBus.uiColor.opacity(0.28))
+                                    .frame(height: 1)
+                            }
+                            .frame(height: 32)
+                            .padding(.top, 6)
                     }
-                    .frame(height: 32)
-                    .padding(.top, 6)
                 }
             }
             .frame(width: controlSource == nil ? width : width + 42, height: 236)
@@ -1058,9 +1287,13 @@ private struct MixerMeterModule: View {
 
     private func setLevel(_ db: Double) {
         if let pairedControlSource {
-            controller.setMainMixStereoPairLevel(pairStartingAt: controlSource ?? pairedControlSource, db: db)
+            controller.setSendStereoPairLevel(
+                pairStartingAt: controlSource ?? pairedControlSource,
+                bus: controller.selectedSendBus,
+                db: db
+            )
         } else if let controlSource {
-            controller.setMainMixSourceLevel(source: controlSource, db: db)
+            controller.setSendSourceLevel(source: controlSource, bus: controller.selectedSendBus, db: db)
         }
     }
 
@@ -1154,6 +1387,7 @@ private struct BottomOuterCornerShape: Shape {
 
 private struct VerticalFader: View {
     let value: Double
+    var tint: Color = .audientRed
     let setValue: (Double) -> Void
 
     private let minValue: Double = -60
@@ -1189,7 +1423,7 @@ private struct VerticalFader: View {
                         RoundedRectangle(cornerRadius: 3)
                             .fill(
                                 LinearGradient(
-                                    colors: [Color.meterGreen.opacity(0.95), Color.audientRed.opacity(0.72)],
+                                    colors: [Color.meterGreen.opacity(0.95), tint.opacity(0.78)],
                                     startPoint: .bottom,
                                     endPoint: .top
                                 )
@@ -1414,6 +1648,8 @@ private extension Color {
     static let headerBottom = Color(red: 0.075, green: 0.08, blue: 0.088)
     static let panelSurfaceTop = Color(red: 0.155, green: 0.162, blue: 0.17)
     static let panelSurfaceBottom = Color(red: 0.098, green: 0.103, blue: 0.11)
+    static let segmentSurfaceTop = Color(red: 0.125, green: 0.132, blue: 0.14)
+    static let segmentSurfaceBottom = Color(red: 0.082, green: 0.087, blue: 0.094)
     static let panelStroke = Color.white.opacity(0.115)
     static let controlSurface = Color(red: 0.105, green: 0.11, blue: 0.118)
     static let audientRed = Color(red: 0.88, green: 0.16, blue: 0.13)
@@ -1422,4 +1658,63 @@ private extension Color {
     static let meterGreen = Color(red: 0.23, green: 0.92, blue: 0.48)
     static let meterAmber = Color(red: 1.0, green: 0.72, blue: 0.22)
     static let meterRed = Color(red: 1.0, green: 0.22, blue: 0.18)
+    static let cueA = Color(red: 0.22, green: 0.66, blue: 1.0)
+    static let cueB = Color(red: 0.76, green: 0.48, blue: 1.0)
+    static let cueC = Color(red: 0.20, green: 0.82, blue: 0.66)
+    static let cueD = Color(red: 1.0, green: 0.58, blue: 0.24)
+    static let dawRoute = Color(red: 0.48, green: 0.72, blue: 0.78)
+    static let altRoute = Color(red: 0.90, green: 0.72, blue: 0.30)
+}
+
+private extension Mixer.SendBus {
+    var uiColor: Color {
+        switch self {
+        case .main:
+            return .audientRed
+        case .cueA:
+            return .cueA
+        case .cueB:
+            return .cueB
+        case .cueC:
+            return .cueC
+        case .cueD:
+            return .cueD
+        }
+    }
+}
+
+private extension Routing.Source {
+    var uiColor: Color {
+        switch self {
+        case .mainMix:
+            return .audientRed
+        case .altSpeaker:
+            return .altRoute
+        case .cueA:
+            return .cueA
+        case .cueB:
+            return .cueB
+        case .cueC:
+            return .cueC
+        case .cueD:
+            return .cueD
+        case .dawThru:
+            return .dawRoute
+        }
+    }
+}
+
+private func cueColor(_ name: String) -> Color? {
+    switch name {
+    case "CUE A":
+        return .cueA
+    case "CUE B":
+        return .cueB
+    case "CUE C":
+        return .cueC
+    case "CUE D":
+        return .cueD
+    default:
+        return nil
+    }
 }

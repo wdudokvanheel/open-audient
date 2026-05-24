@@ -17,24 +17,82 @@ final class MappingTests: XCTestCase {
     }
 
     func testMainSendChannels() {
-        // Each input has 6 slots; main mix is slots 4/5 (confirmed on hardware).
+        // Hardware sources use 6 slots; main mix is slots 4/5.
         XCTAssertEqual(Mixer.mainSendChannels(input: 0).left, 4)
         XCTAssertEqual(Mixer.mainSendChannels(input: 0).right, 5)
         XCTAssertEqual(Mixer.mainSendChannels(input: 2).left, 16)
         XCTAssertEqual(Mixer.mainSendChannels(input: 2).right, 17)
     }
 
+    func testSendBusChannels() {
+        // Each hardware mixer source has cue A, cue B, then main L/R slots.
+        XCTAssertEqual(Mixer.sendChannels(source: 0, bus: .cueA)?.left, 0)
+        XCTAssertEqual(Mixer.sendChannels(source: 0, bus: .cueA)?.right, 1)
+        XCTAssertEqual(Mixer.sendChannels(source: 0, bus: .cueB)?.left, 2)
+        XCTAssertEqual(Mixer.sendChannels(source: 0, bus: .cueB)?.right, 3)
+        XCTAssertEqual(Mixer.sendChannels(source: 0, bus: .main)?.left, 4)
+        XCTAssertEqual(Mixer.sendChannels(source: 0, bus: .main)?.right, 5)
+        XCTAssertEqual(Mixer.sendChannels(source: 2, bus: .cueA)?.left, 12)
+        XCTAssertEqual(Mixer.sendChannels(source: 2, bus: .cueA)?.right, 13)
+        XCTAssertEqual(Mixer.sendChannels(source: 2, bus: .cueB)?.right, 15)
+        XCTAssertEqual(Mixer.sendChannels(source: 2, bus: .main)?.right, 17)
+        XCTAssertEqual(Mixer.sendChannels(source: 0, bus: .cueC)?.unit, 0x3D)
+        XCTAssertEqual(Mixer.sendChannels(source: 0, bus: .cueC)?.left, 0)
+        XCTAssertEqual(Mixer.sendChannels(source: 0, bus: .cueC)?.right, 1)
+        XCTAssertEqual(Mixer.sendChannels(source: 0, bus: .cueD)?.unit, 0x3D)
+        XCTAssertEqual(Mixer.sendChannels(source: 0, bus: .cueD)?.left, 2)
+        XCTAssertEqual(Mixer.sendChannels(source: 0, bus: .cueD)?.right, 3)
+        XCTAssertEqual(Mixer.sendChannels(source: 2, bus: .cueC)?.left, 8)
+        XCTAssertEqual(Mixer.sendChannels(source: 2, bus: .cueD)?.right, 11)
+        XCTAssertEqual(Mixer.sendChannels(source: 14, bus: .cueD)?.right, 0x3b)
+        XCTAssertNil(Mixer.sendChannels(source: 15, bus: .cueC))
+        XCTAssertNil(Mixer.sendChannels(source: 15, bus: .cueD))
+    }
+
     func testDAWReturnChannelsFollowInputs() {
-        // On the iD44 there are 20 hardware input sources, followed by DAW 1+2
-        // and DAW 3+4 return pairs in the same 6-slot mixer source map.
         XCTAssertEqual(Mixer.dawReturnSources(pair: 0, afterInputCount: 20).left, 20)
         XCTAssertEqual(Mixer.dawReturnSources(pair: 0, afterInputCount: 20).right, 21)
-        XCTAssertEqual(Mixer.dawReturnChannels(pair: 0, afterInputCount: 20).left.left, 124)
-        XCTAssertEqual(Mixer.dawReturnChannels(pair: 0, afterInputCount: 20).left.right, 125)
-        XCTAssertEqual(Mixer.dawReturnChannels(pair: 0, afterInputCount: 20).right.left, 130)
-        XCTAssertEqual(Mixer.dawReturnChannels(pair: 0, afterInputCount: 20).right.right, 131)
+        XCTAssertEqual(Mixer.dawReturnChannels(pair: 0, afterInputCount: 20).left.left, 0xa0)
+        XCTAssertEqual(Mixer.dawReturnChannels(pair: 0, afterInputCount: 20).left.right, 0xa1)
+        XCTAssertEqual(Mixer.dawReturnChannels(pair: 0, afterInputCount: 20).right.left, 0xa8)
+        XCTAssertEqual(Mixer.dawReturnChannels(pair: 0, afterInputCount: 20).right.right, 0xa9)
         XCTAssertEqual(Mixer.dawReturnSources(pair: 1, afterInputCount: 20).left, 22)
         XCTAssertEqual(Mixer.dawReturnSources(pair: 1, afterInputCount: 20).right, 23)
+    }
+
+    func testDAWMainSendUsesWideMixerStride() {
+        XCTAssertEqual(Mixer.dawSendChannels(source: 20, bus: .main)?.left, 0xa0)
+        XCTAssertEqual(Mixer.dawSendChannels(source: 20, bus: .main)?.right, 0xa1)
+        XCTAssertEqual(Mixer.dawSendChannels(source: 20, bus: .cueA)?.left, 0xa2)
+        XCTAssertEqual(Mixer.dawSendChannels(source: 20, bus: .cueA)?.right, 0xa3)
+        XCTAssertEqual(Mixer.dawSendChannels(source: 21, bus: .main)?.left, 0xa8)
+        XCTAssertEqual(Mixer.dawSendChannels(source: 21, bus: .main)?.right, 0xa9)
+        XCTAssertEqual(Mixer.dawSendChannels(source: 21, bus: .cueA)?.left, 0xaa)
+        XCTAssertEqual(Mixer.dawSendChannels(source: 21, bus: .cueA)?.right, 0xab)
+        XCTAssertNil(Mixer.dawSendChannels(source: 20, bus: .cueC))
+        XCTAssertNil(Mixer.dawSendChannels(source: 20, bus: .cueD))
+    }
+
+    func testID44PeakChannelsMapToOfficialMixerSources() {
+        let model = DeviceModel.iD44
+        XCTAssertEqual(model.mixerSource(forAnalogInput: 0), 0)
+        XCTAssertEqual(model.mixerSource(forAnalogInput: 1), 1)
+        XCTAssertEqual(model.mixerSource(forAnalogInput: 2), 2)
+        XCTAssertEqual(model.mixerSource(forAnalogInput: 3), 3)
+        XCTAssertEqual(model.mixerSource(forAnalogInput: 2, sendBus: .main), 2)
+        XCTAssertEqual(model.mixerSource(forAnalogInput: 2, sendBus: .cueA), 3)
+        XCTAssertEqual(model.mixerSource(forAnalogInput: 2, sendBus: .cueB), 3)
+        XCTAssertEqual(model.mixerSource(forAnalogInput: 3, sendBus: .cueA), 4)
+        XCTAssertEqual(model.mixerSource(forPeakChannel: 0), 0)
+        XCTAssertEqual(model.mixerSource(forPeakChannel: 2), 2)
+        XCTAssertEqual(model.mixerSource(forPeakChannel: 19), 19)
+        XCTAssertEqual(model.mixerSource(forPeakChannel: 20), 20)
+        XCTAssertEqual(model.mixerSource(forPeakChannel: 21), 21)
+        XCTAssertEqual(model.mixerSource(forPeakChannel: 22), 22)
+        XCTAssertEqual(model.mixerSource(forPeakChannel: 23), 23)
+        XCTAssertEqual(model.peakChannel(forMixerSource: 0), 0)
+        XCTAssertEqual(model.peakChannel(forMixerSource: 2), 2)
+        XCTAssertEqual(model.peakChannel(forMixerSource: 20), 20)
     }
 
     func testRoutingAddressing() {
@@ -51,9 +109,23 @@ final class MappingTests: XCTestCase {
         XCTAssertEqual(Routing.Source.mainMix.value(forOutput: 5), 0x40)
         XCTAssertEqual(Routing.Source.altSpeaker.value(forOutput: 0), 0x3d)
         XCTAssertEqual(Routing.Source.altSpeaker.value(forOutput: 1), 0x3e)
-        XCTAssertEqual(Routing.Source.cueA.value(forOutput: 0), 0x19)
-        XCTAssertEqual(Routing.Source.cueB.value(forOutput: 0), 0x1a)
+        XCTAssertEqual(Routing.Source.cueA.value(forOutput: 0), 0x2e)
+        XCTAssertEqual(Routing.Source.cueA.value(forOutput: 1), 0x2f)
+        XCTAssertEqual(Routing.Source.cueB.value(forOutput: 0), 0x30)
+        XCTAssertEqual(Routing.Source.cueB.value(forOutput: 1), 0x31)
+        XCTAssertEqual(Routing.Source.cueC.value(forOutput: 0), 0x32)
+        XCTAssertEqual(Routing.Source.cueC.value(forOutput: 1), 0x33)
+        XCTAssertEqual(Routing.Source.cueD.value(forOutput: 0), 0x34)
+        XCTAssertEqual(Routing.Source.cueD.value(forOutput: 1), 0x35)
         XCTAssertEqual(Routing.Source.dawThru.value(forOutput: 4), 0x04)
+        XCTAssertEqual(
+            Routing.Source.matching(leftOutput: 0, leftValue: 0x2e, rightValue: 0x2f),
+            .cueA
+        )
+        XCTAssertEqual(
+            Routing.Source.matching(leftOutput: 0, leftValue: 0x34, rightValue: 0x35),
+            .cueD
+        )
         XCTAssertEqual(
             Routing.Source.matching(leftOutput: 0, leftValue: 0x3b, rightValue: 0x3c),
             .mainMix
@@ -66,6 +138,11 @@ final class MappingTests: XCTestCase {
             Routing.Source.matching(leftOutput: 0, leftValue: 0x1b, rightValue: 0x1c),
             .mainMix,
             "Recognize the older MixiD-labelled main values if already present"
+        )
+        XCTAssertEqual(
+            Routing.Source.matching(leftOutput: 0, leftValue: 0x19, rightValue: 0x19),
+            .cueA,
+            "Recognize the older MixiD-labelled cue values if already present"
         )
         XCTAssertEqual(
             Routing.Source.matching(leftOutput: 4, leftValue: 0x04, rightValue: 0x05),
