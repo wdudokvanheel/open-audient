@@ -44,6 +44,35 @@ final class MappingTests: XCTestCase {
         XCTAssertEqual(c.request.length, 1)
     }
 
+    func testRoutingSourceValues() {
+        XCTAssertEqual(Routing.Source.mainMix.value(forOutput: 0), 0x3b)
+        XCTAssertEqual(Routing.Source.mainMix.value(forOutput: 1), 0x3c)
+        XCTAssertEqual(Routing.Source.mainMix.value(forOutput: 4), 0x3f)
+        XCTAssertEqual(Routing.Source.mainMix.value(forOutput: 5), 0x40)
+        XCTAssertEqual(Routing.Source.altSpeaker.value(forOutput: 0), 0x3d)
+        XCTAssertEqual(Routing.Source.altSpeaker.value(forOutput: 1), 0x3e)
+        XCTAssertEqual(Routing.Source.cueA.value(forOutput: 0), 0x19)
+        XCTAssertEqual(Routing.Source.cueB.value(forOutput: 0), 0x1a)
+        XCTAssertEqual(Routing.Source.dawThru.value(forOutput: 4), 0x04)
+        XCTAssertEqual(
+            Routing.Source.matching(leftOutput: 0, leftValue: 0x3b, rightValue: 0x3c),
+            .mainMix
+        )
+        XCTAssertEqual(
+            Routing.Source.matching(leftOutput: 4, leftValue: 0x3f, rightValue: 0x40),
+            .mainMix
+        )
+        XCTAssertEqual(
+            Routing.Source.matching(leftOutput: 0, leftValue: 0x1b, rightValue: 0x1c),
+            .mainMix,
+            "Recognize the older MixiD-labelled main values if already present"
+        )
+        XCTAssertEqual(
+            Routing.Source.matching(leftOutput: 4, leftValue: 0x04, rightValue: 0x05),
+            .dawThru
+        )
+    }
+
     func testPreampAddressing() {
         // Phase selector 0x0d on feature unit 0x0b, channel = input (confirmed).
         let phase = Preamp.phase(input: 2)

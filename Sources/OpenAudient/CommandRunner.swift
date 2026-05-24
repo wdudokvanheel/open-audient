@@ -55,7 +55,7 @@ public enum CommandRunner {
         print("— Mixer levels —")
         for ch in 0..<UInt8(12) { await row("Mixer ch \(ch)", String(format: "%.1f dB", try await device.read(Mixer.level(channel: ch)))) }
         print("— Routing —")
-        for out in 0..<UInt8(device.model.lineOutputs + 2) { await row("Output \(out)", String(format: "0x%02x", try await device.read(Routing.source(output: out)))) }
+        for out in 0..<UInt8(device.model.totalOutputs) { await row("Output \(out)", String(format: "0x%02x", try await device.read(Routing.source(output: out)))) }
         return 0
     }
 

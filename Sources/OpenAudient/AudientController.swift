@@ -40,6 +40,7 @@ public final class AudientController: ObservableObject {
     @Published public var mainMixSourceLevelsDB: [Double] = []
     @Published public var mutedMainMixSources: Set<Int> = []
     @Published public var soloedMainMixSources: Set<Int> = []
+    @Published public var outputRouteSources: [UInt8?] = []
 
     /// Live input peak meters (separate object to avoid re-rendering the whole UI).
     public let meters = MeterReadings()
@@ -108,6 +109,7 @@ public final class AudientController: ObservableObject {
         mainMixSourceLevelsDB = []
         mutedMainMixSources = []
         soloedMainMixSources = []
+        outputRouteSources = []
         storedMainMixSourceLevels = [:]
         preSoloMainMixSourceLevels = nil
         device = nil
@@ -169,6 +171,9 @@ public final class AudientController: ObservableObject {
             dawLevels.append(sourceLevels.indices.contains(source) ? sourceLevels[source] : -128)
         }
         dawReturnLevelsDB = dawLevels
+
+        let outputs = model?.totalOutputs ?? 0
+        outputRouteSources = await readOutputRouteSources(outputs: outputs)
     }
 
     // MARK: Actions (optimistic: update state now, write in the background)
@@ -244,6 +249,28 @@ public final class AudientController: ObservableObject {
         applySoloState()
     }
 
+    public func outputRouteSource(forPairStartingAt output: Int) -> Routing.Source? {
+        guard output >= 0,
+              outputRouteSources.indices.contains(output),
+              outputRouteSources.indices.contains(output + 1),
+              let left = outputRouteSources[output],
+              let right = outputRouteSources[output + 1] else { return nil }
+        return Routing.Source.matching(leftOutput: output, leftValue: left, rightValue: right)
+    }
+
+    public func setOutputRoute(pairStartingAt output: Int, source: Routing.Source) {
+        guard output >= 0 else { return }
+        let left = source.value(forOutput: output)
+        let right = source.value(forOutput: output + 1)
+        setOutputRouteSourceLocally(output: output, value: left)
+        setOutputRouteSourceLocally(output: output + 1, value: right)
+        guard let device else { return }
+        Task {
+            _ = try? await device.write(Routing.source(output: UInt8(output)), left)
+            _ = try? await device.write(Routing.source(output: UInt8(output + 1)), right)
+        }
+    }
+
     private func applySoloState() {
         guard !mainMixSourceLevelsDB.isEmpty else { return }
         if soloedMainMixSources.isEmpty {
@@ -295,6 +322,23 @@ public final class AudientController: ObservableObject {
             _ = try? await device.write(send.left, db)
             _ = try? await device.write(send.right, db)
         }
+    }
+
+    private func readOutputRouteSources(outputs: Int) async -> [UInt8?] {
+        guard let device, outputs > 0 else { return [] }
+        var sources = Array<UInt8?>(repeating: nil, count: outputs)
+        for output in 0..<outputs {
+            sources[output] = try? await device.read(Routing.source(output: UInt8(output)))
+        }
+        return sources
+    }
+
+    private func setOutputRouteSourceLocally(output: Int, value: UInt8) {
+        guard output >= 0 else { return }
+        if output >= outputRouteSources.count {
+            outputRouteSources.append(contentsOf: Array<UInt8?>(repeating: nil, count: output - outputRouteSources.count + 1))
+        }
+        outputRouteSources[output] = value
     }
 
     public var controllableMainMixSources: Set<Int> {
