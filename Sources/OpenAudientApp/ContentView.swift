@@ -31,6 +31,7 @@ struct ContentView: View {
                     ScrollView {
                         VStack(spacing: 18) {
                             monitorSection
+                            outputRoutingSection
                             peakMeterSections
                         }
                         .padding(.horizontal, 18)
@@ -238,6 +239,49 @@ struct ContentView: View {
         }
     }
 
+    private var outputRoutingSection: some View {
+        Panel {
+            VStack(alignment: .leading, spacing: 14) {
+                SectionHeader(
+                    title: "Output Routing",
+                    detail: "Assign each stereo output pair",
+                    count: "\(outputRoutingPairs.count) pairs"
+                )
+
+                if outputRoutingPairs.isEmpty {
+                    EmptyMeterState()
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                Text("Output")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 94, alignment: .leading)
+
+                                ForEach(Routing.Source.allCases) { source in
+                                    Text(source.title)
+                                        .font(.caption2.weight(.bold))
+                                        .foregroundStyle(.secondary)
+                                        .multilineTextAlignment(.center)
+                                        .lineLimit(2)
+                                        .minimumScaleFactor(0.72)
+                                        .frame(width: 66, height: 30)
+                                }
+                            }
+
+                            ForEach(outputRoutingPairs) { pair in
+                                OutputRoutingRow(pair: pair)
+                                    .environmentObject(controller)
+                            }
+                        }
+                        .padding(.bottom, 2)
+                    }
+                }
+            }
+        }
+    }
+
     private var peakMeterSections: some View {
         VStack(spacing: 18) {
             meterPanel(
@@ -262,7 +306,12 @@ struct ContentView: View {
             groupedMeterPanel(
                 title: "Hardware Outputs",
                 channels: outputMeterChannels,
-                stereoTitle: { outputPairTitle(at: $0) }
+                stereoTitle: hardwareOutputPairTitle
+            )
+            groupedMeterPanel(
+                title: "Cues",
+                channels: cueMeterChannels,
+                stereoTitle: cuePairTitle
             )
 
             if !unmappedMeterChannels.isEmpty {
@@ -376,8 +425,26 @@ struct ContentView: View {
         guard let model = controller.model else { return [] }
         let count = max(controller.meters.outputsDB.count, model.totalOutputs)
         guard count > 0 else { return [] }
-        return (0..<count).map { index in
+        return (0..<count).filter { !isCueOutput(index: $0, model: model) }.map { index in
             MeterChannel(index: index, title: outputTitle(at: index), bank: .outputs)
+        }
+    }
+
+    private var cueMeterChannels: [MeterChannel] {
+        guard let model = controller.model else { return [] }
+        let count = max(controller.meters.outputsDB.count, model.totalOutputs)
+        guard count > 0 else { return [] }
+        return (0..<count).filter { isCueOutput(index: $0, model: model) }.map { index in
+            MeterChannel(index: index, title: outputTitle(at: index), bank: .outputs)
+        }
+    }
+
+    private var outputRoutingPairs: [OutputRoutingPair] {
+        guard let model = controller.model else { return [] }
+        let count = model.totalOutputs
+        guard count > 0 else { return [] }
+        return stride(from: 0, to: count, by: 2).map { left in
+            OutputRoutingPair(id: left, leftOutput: left, title: physicalOutputPairTitle(leftIndex: left, model: model))
         }
     }
 
@@ -389,23 +456,127 @@ struct ContentView: View {
 
     private func outputTitle(at index: Int) -> String {
         guard let model = controller.model else { return "OUT \(index + 1)" }
-        if index < model.lineOutputs {
-            return "OUT \(index + 1)"
+        if let cueTitle = cueOutputTitle(at: index, model: model) {
+            return cueTitle
         }
-        return "DIG OUT \(index - model.lineOutputs + 1)"
+        return physicalOutputTitle(at: index, model: model)
     }
 
-    private func outputPairTitle(at pair: Int) -> String {
-        guard let model = controller.model else { return "OUT \(pair * 2 + 1)+\(pair * 2 + 2)" }
-        let left = pair * 2
+    private func physicalOutputPairTitle(leftIndex left: Int, model: DeviceModel) -> String {
         let right = left + 1
+        if let headphones = headphonePairName(leftIndex: left, model: model) {
+            return headphones
+        }
         if right < model.lineOutputs {
             return "OUT \(left + 1)+\(right + 1)"
         }
         if left >= model.lineOutputs {
-            return "DIG OUT \(left - model.lineOutputs + 1)+\(right - model.lineOutputs + 1)"
+            let first = digitalOutputNumber(forOutput: left, model: model)
+            return "DIG OUT \(first)+\(first + 1)"
+        }
+        return "\(physicalOutputTitle(at: left, model: model))+\(physicalOutputTitle(at: right, model: model))"
+    }
+
+    private func physicalOutputTitle(at index: Int, model: DeviceModel) -> String {
+        if let headphones = headphoneOutputTitle(at: index, model: model) {
+            return headphones
+        }
+        if index < model.lineOutputs {
+            return "OUT \(index + 1)"
+        }
+        return "DIG OUT \(digitalOutputNumber(forOutput: index, model: model))"
+    }
+
+    private func hardwareOutputPairTitle(at pair: Int) -> String {
+        let channels = outputMeterChannels
+        let offset = pair * 2
+        guard channels.indices.contains(offset) else { return "OUT \(pair * 2 + 1)+\(pair * 2 + 2)" }
+        let left = channels[offset].index
+        let right = channels.indices.contains(offset + 1) ? channels[offset + 1].index : left + 1
+        return outputPairTitle(leftIndex: left, rightIndex: right)
+    }
+
+    private func cuePairTitle(at pair: Int) -> String {
+        let channels = cueMeterChannels
+        let offset = pair * 2
+        guard channels.indices.contains(offset) else { return "CUE \(pair + 1)" }
+        let left = channels[offset].index
+        guard let model = controller.model else { return outputPairTitle(leftIndex: left, rightIndex: left + 1) }
+        return cueOutputPairTitle(leftIndex: left, model: model) ?? outputPairTitle(leftIndex: left, rightIndex: left + 1)
+    }
+
+    private func outputPairTitle(leftIndex left: Int, rightIndex right: Int) -> String {
+        guard let model = controller.model else { return "OUT \(left + 1)+\(right + 1)" }
+        if let cueTitle = cueOutputPairTitle(leftIndex: left, model: model) {
+            return cueTitle
+        }
+        if right < model.lineOutputs {
+            return "OUT \(left + 1)+\(right + 1)"
+        }
+        if left >= model.lineOutputs {
+            let first = digitalOutputNumber(forOutput: left, model: model)
+            return "DIG OUT \(first)+\(first + 1)"
         }
         return "\(outputTitle(at: left))+\(outputTitle(at: right))"
+    }
+
+    private func isCueOutput(index: Int, model: DeviceModel) -> Bool {
+        cueOutputName(leftIndex: index - index % 2, model: model) != nil
+    }
+
+    private func cueOutputTitle(at index: Int, model: DeviceModel) -> String? {
+        guard let cue = cueOutputName(leftIndex: index - index % 2, model: model) else { return nil }
+        return "\(cue) \(index.isMultiple(of: 2) ? "L" : "R")"
+    }
+
+    private func cueOutputPairTitle(leftIndex: Int, model: DeviceModel) -> String? {
+        cueOutputName(leftIndex: leftIndex, model: model)
+    }
+
+    private func cueOutputName(leftIndex: Int, model: DeviceModel) -> String? {
+        switch leftIndex {
+        case 2 where model.lineOutputs >= 4:
+            return "CUE A"
+        case model.lineOutputs:
+            return "CUE B"
+        case model.lineOutputs + 2:
+            return "CUE C"
+        case model.lineOutputs + 4:
+            return "CUE D"
+        default:
+            return nil
+        }
+    }
+
+    private func headphonePairName(leftIndex: Int, model: DeviceModel) -> String? {
+        guard hasDedicatedHeadphoneOutputLabels(model) else { return nil }
+        switch leftIndex {
+        case model.lineOutputs:
+            return "HP 1"
+        case model.lineOutputs + 2:
+            return "HP 2"
+        default:
+            return nil
+        }
+    }
+
+    private func headphoneOutputTitle(at index: Int, model: DeviceModel) -> String? {
+        guard hasDedicatedHeadphoneOutputLabels(model) else { return nil }
+        let left = index - index % 2
+        guard let pairName = headphonePairName(leftIndex: left, model: model) else { return nil }
+        return "\(pairName) \(index.isMultiple(of: 2) ? "L" : "R")"
+    }
+
+    private func digitalOutputNumber(forOutput index: Int, model: DeviceModel) -> Int {
+        index - model.lineOutputs - headphoneOutputChannels(for: model) + 1
+    }
+
+    private func headphoneOutputChannels(for model: DeviceModel) -> Int {
+        hasDedicatedHeadphoneOutputLabels(model) ? 4 : 0
+    }
+
+    private func hasDedicatedHeadphoneOutputLabels(_ model: DeviceModel) -> Bool {
+        model.productID == DeviceModel.iD44.productID || model.productID == DeviceModel.iD44mkII.productID
     }
 
     private func internalPeakStart(for model: DeviceModel) -> Int {
@@ -572,6 +743,82 @@ private struct ControlPadButton: View {
 private enum MeterBank: Int {
     case inputPlayback
     case outputs
+}
+
+private struct OutputRoutingPair: Identifiable {
+    let id: Int
+    let leftOutput: Int
+    let title: String
+}
+
+private struct OutputRoutingRow: View {
+    @EnvironmentObject private var controller: AudientController
+
+    let pair: OutputRoutingPair
+
+    private var selectedSource: Routing.Source? {
+        controller.outputRouteSource(forPairStartingAt: pair.leftOutput)
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(pair.title)
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.primary.opacity(0.92))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .frame(width: 94, height: 28, alignment: .leading)
+                .padding(.horizontal, 8)
+                .background(Color.black.opacity(0.22), in: RoundedRectangle(cornerRadius: 5))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5)
+                        .stroke(.white.opacity(0.08))
+                )
+
+            ForEach(Routing.Source.allCases) { source in
+                RoutingSourceButton(isSelected: selectedSource == source) {
+                    controller.setOutputRoute(pairStartingAt: pair.leftOutput, source: source)
+                }
+            }
+        }
+    }
+}
+
+private struct RoutingSourceButton: View {
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: isSelected
+                                ? [Color.white.opacity(0.96), Color.white.opacity(0.55)]
+                                : [Color.black.opacity(0.58), Color.black.opacity(0.34)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .frame(width: 15, height: 15)
+                    .overlay(
+                        Circle()
+                            .stroke(isSelected ? Color.white.opacity(0.75) : Color.white.opacity(0.13), lineWidth: 1)
+                    )
+                    .shadow(color: isSelected ? Color.white.opacity(0.28) : .black.opacity(0.28), radius: isSelected ? 5 : 2)
+
+                if isSelected {
+                    Circle()
+                        .fill(Color.appBase)
+                        .frame(width: 6, height: 6)
+                }
+            }
+            .frame(width: 66, height: 28)
+            .background(isSelected ? Color.white.opacity(0.045) : Color.clear, in: RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 private struct MeterChannel: Identifiable {
