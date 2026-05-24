@@ -294,7 +294,7 @@ struct ContentView: View {
                 stereoTitle: { "DIG \($0 * 2 + 1)+\($0 * 2 + 2)" }
             )
             groupedMeterPanel(
-                title: "DAW Playback",
+                title: "DAW Input",
                 channels: dawPlaybackMeterChannels,
                 stereoTitle: { "DAW \($0 * 2 + 1)+\($0 * 2 + 2)" }
             )
