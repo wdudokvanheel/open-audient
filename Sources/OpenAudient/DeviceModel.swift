@@ -73,9 +73,9 @@ public struct DeviceModel: Sendable, Equatable, Identifiable {
     public func mixerSource(forAnalogInput input: Int, sendBus: Mixer.SendBus) -> Int? {
         guard input >= 0, input < micInputs else { return nil }
         switch sendBus {
-        case .cueA, .cueB:
+        case .cueA, .cueB, .cueC, .cueD:
             return input + 1
-        case .main, .cueC, .cueD:
+        case .main:
             return input
         }
     }
