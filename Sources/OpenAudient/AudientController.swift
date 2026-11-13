@@ -7,7 +7,8 @@ import Combine
 public final class MeterReadings: ObservableObject {
     @Published public var inputsDB: [Float] = []
     @Published public var allDB: [Float] = []
-    @Published public var outputsDB: [Float] = []
+    /// Mix-bus meters: L/R pairs in `Mixer.SendBus` order.
+    @Published public var busesDB: [Float] = []
     public init() {}
 }
 
@@ -107,7 +108,7 @@ public final class AudientController: ObservableObject {
         meterTask = nil
         meters.inputsDB = []
         meters.allDB = []
-        meters.outputsDB = []
+        meters.busesDB = []
         mainMixSourceLevelsDB = []
         sendSourceLevelsDB = [:]
         selectedSendBus = .main
@@ -132,10 +133,8 @@ public final class AudientController: ObservableObject {
                 } else if let levels = try? await device.readInputMeters(channels: inputChannels) {
                     self.meters.inputsDB = levels
                 }
-                if let outputChannels = self.model?.totalOutputs,
-                   outputChannels > 0,
-                   let levels = try? await device.readOutputMeters(channels: outputChannels) {
-                    self.meters.outputsDB = levels
+                if let levels = try? await device.readBusMeters() {
+                    self.meters.busesDB = levels
                 }
                 try? await Task.sleep(for: self.meterInterval)
             }

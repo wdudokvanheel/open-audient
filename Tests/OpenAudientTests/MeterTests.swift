@@ -23,6 +23,15 @@ final class MeterTests: XCTestCase {
         XCTAssertEqual(Meters.dBFS(0, floor: -90), -90)
     }
 
+    func testBusMeterBlockFollowsSendBusOrder() {
+        // GET_MEM offset 1 holds L/R pairs for Main, Cue A, Cue B, Cue C, Cue D;
+        // the UI labels pair n as Mixer.SendBus(rawValue: n).
+        XCTAssertEqual(Meters.busOffset, 1)
+        XCTAssertEqual(Meters.busChannels, 10)
+        XCTAssertEqual(Mixer.SendBus.allCases, [.main, .cueA, .cueB, .cueC, .cueD])
+        XCTAssertEqual(Mixer.SendBus.allCases.map(\.rawValue), [0, 1, 2, 3, 4])
+    }
+
     func testPeaksParseLittleEndianPairs() {
         XCTAssertEqual(Meters.peaks([0x99, 0x19, 0xFF, 0xFF, 0x00]), [0x1999, 0xFFFF])
         XCTAssertEqual(Meters.peaks([0x01]), [])

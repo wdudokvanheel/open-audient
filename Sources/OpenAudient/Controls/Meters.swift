@@ -13,6 +13,16 @@ public enum Meters {
     /// Raw peak value corresponding to 0 dBFS.
     public static let fullScale = Float(UInt16.max)
 
+    /// Memory offset of the mix-bus meter block. Its stereo pairs follow
+    /// `Mixer.SendBus` order: Main Mix, Cue A, Cue B, Cue C, Cue D. These are
+    /// bus meters, not per-hardware-output meters: routing an output does not
+    /// change them. Verified on the iD44 with test tones for Main, Cue A and
+    /// Cue B; the Main pair also follows whatever feeds the speaker outputs.
+    public static let busOffset: UInt16 = 1
+
+    /// Channels in the mix-bus meter block (stereo pairs, one per send bus).
+    public static let busChannels = Mixer.SendBus.allCases.count * 2
+
     /// Parse little-endian `UInt16` peak values from a meter block.
     public static func peaks(_ bytes: [UInt8]) -> [UInt16] {
         guard bytes.count >= 2 else { return [] }

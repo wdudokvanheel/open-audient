@@ -292,17 +292,11 @@ struct ContentView: View {
                 stereoTitle: internalPeakPairTitle
             )
             groupedMeterPanel(
-                title: "Hardware Outputs",
+                title: "Mix Buses",
                 detail: nil,
-                channels: outputMeterChannels,
-                stereoTitle: hardwareOutputPairTitle
-            )
-            groupedMeterPanel(
-                title: "Cues",
-                detail: nil,
-                channels: cueMeterChannels,
-                stereoTitle: cuePairTitle,
-                pairTint: cuePairTint
+                channels: busMeterChannels,
+                stereoTitle: { busMeterBus(pair: $0)?.longTitle.uppercased() ?? "BUS \($0 + 1)" },
+                pairTint: { busMeterBus(pair: $0)?.uiColor }
             )
 
             if !unmappedMeterChannels.isEmpty {
@@ -530,22 +524,17 @@ struct ContentView: View {
         return meterChannels(in: controller.meters.allDB.indices) { "Peak \($0)" }
     }
 
-    private var outputMeterChannels: [MeterChannel] {
-        guard let model = controller.model else { return [] }
-        let count = max(controller.meters.outputsDB.count, model.totalOutputs)
-        guard count > 0 else { return [] }
-        return (0..<count).filter { !isCueOutput(index: $0, model: model) }.map { index in
-            MeterChannel(index: index, title: outputTitle(at: index), bank: .outputs)
+    private var busMeterChannels: [MeterChannel] {
+        guard controller.model != nil else { return [] }
+        return (0..<Meters.busChannels).map { index in
+            let bus = busMeterBus(pair: index / 2)?.longTitle.uppercased() ?? "BUS \(index / 2 + 1)"
+            return MeterChannel(index: index, title: "\(bus) \(index.isMultiple(of: 2) ? "L" : "R")", bank: .buses)
         }
     }
 
-    private var cueMeterChannels: [MeterChannel] {
-        guard let model = controller.model else { return [] }
-        let count = max(controller.meters.outputsDB.count, model.totalOutputs)
-        guard count > 0 else { return [] }
-        return (0..<count).filter { isCueOutput(index: $0, model: model) }.map { index in
-            MeterChannel(index: index, title: outputTitle(at: index), bank: .outputs)
-        }
+    /// Bus meter pairs follow `Mixer.SendBus` order (see `Meters.busOffset`).
+    private func busMeterBus(pair: Int) -> Mixer.SendBus? {
+        Mixer.SendBus(rawValue: pair)
     }
 
     private var outputRoutingPairs: [OutputRoutingPair] {
@@ -561,14 +550,6 @@ struct ContentView: View {
 
     private func bind(_ keyPath: KeyPath<AudientController, Bool>, _ setter: @escaping (Bool) -> Void) -> Binding<Bool> {
         Binding(get: { controller[keyPath: keyPath] }, set: setter)
-    }
-
-    private func outputTitle(at index: Int) -> String {
-        guard let model = controller.model else { return "OUT \(index + 1)" }
-        if let cueTitle = cueOutputTitle(at: index, model: model) {
-            return cueTitle
-        }
-        return physicalOutputTitle(at: index, model: model)
     }
 
     private func physicalOutputPairTitle(leftIndex left: Int, model: DeviceModel) -> String {
@@ -594,71 +575,6 @@ struct ContentView: View {
             return "OUT \(index + 1)"
         }
         return "DIG OUT \(digitalOutputNumber(forOutput: index, model: model))"
-    }
-
-    private func hardwareOutputPairTitle(at pair: Int) -> String {
-        let channels = outputMeterChannels
-        let offset = pair * 2
-        guard channels.indices.contains(offset) else { return "OUT \(pair * 2 + 1)+\(pair * 2 + 2)" }
-        let left = channels[offset].index
-        let right = channels.indices.contains(offset + 1) ? channels[offset + 1].index : left + 1
-        return outputPairTitle(leftIndex: left, rightIndex: right)
-    }
-
-    private func cuePairTitle(at pair: Int) -> String {
-        let channels = cueMeterChannels
-        let offset = pair * 2
-        guard channels.indices.contains(offset) else { return "CUE \(pair + 1)" }
-        let left = channels[offset].index
-        guard let model = controller.model else { return outputPairTitle(leftIndex: left, rightIndex: left + 1) }
-        return cueOutputPairTitle(leftIndex: left, model: model) ?? outputPairTitle(leftIndex: left, rightIndex: left + 1)
-    }
-
-    private func cuePairTint(at pair: Int) -> Color? {
-        cueColor(cuePairTitle(at: pair))
-    }
-
-    private func outputPairTitle(leftIndex left: Int, rightIndex right: Int) -> String {
-        guard let model = controller.model else { return "OUT \(left + 1)+\(right + 1)" }
-        if let cueTitle = cueOutputPairTitle(leftIndex: left, model: model) {
-            return cueTitle
-        }
-        if right < model.lineOutputs {
-            return "OUT \(left + 1)+\(right + 1)"
-        }
-        if left >= model.lineOutputs {
-            let first = digitalOutputNumber(forOutput: left, model: model)
-            return "DIG OUT \(first)+\(first + 1)"
-        }
-        return "\(outputTitle(at: left))+\(outputTitle(at: right))"
-    }
-
-    private func isCueOutput(index: Int, model: DeviceModel) -> Bool {
-        cueOutputName(leftIndex: index - index % 2, model: model) != nil
-    }
-
-    private func cueOutputTitle(at index: Int, model: DeviceModel) -> String? {
-        guard let cue = cueOutputName(leftIndex: index - index % 2, model: model) else { return nil }
-        return "\(cue) \(index.isMultiple(of: 2) ? "L" : "R")"
-    }
-
-    private func cueOutputPairTitle(leftIndex: Int, model: DeviceModel) -> String? {
-        cueOutputName(leftIndex: leftIndex, model: model)
-    }
-
-    private func cueOutputName(leftIndex: Int, model: DeviceModel) -> String? {
-        switch leftIndex {
-        case 2 where model.lineOutputs >= 4:
-            return "CUE A"
-        case model.lineOutputs:
-            return "CUE B"
-        case model.lineOutputs + 2:
-            return "CUE C"
-        case model.lineOutputs + 4:
-            return "CUE D"
-        default:
-            return nil
-        }
     }
 
     private func headphonePairName(leftIndex: Int, model: DeviceModel) -> String? {
@@ -903,7 +819,7 @@ private struct SendBusButton: View {
 
 private enum MeterBank: Int {
     case inputPlayback
-    case outputs
+    case buses
 }
 
 private struct OutputRoutingPair: Identifiable {
@@ -993,7 +909,7 @@ private struct MeterChannel: Identifiable {
 
     @MainActor
     func dB(from meters: MeterReadings) -> Float {
-        let levels = bank == .outputs ? meters.outputsDB : meters.allDB
+        let levels = bank == .buses ? meters.busesDB : meters.allDB
         guard levels.indices.contains(index) else { return -60 }
         return levels[index]
     }
@@ -1686,20 +1602,5 @@ private extension Routing.Source {
         case .dawThru:
             return .dawRoute
         }
-    }
-}
-
-private func cueColor(_ name: String) -> Color? {
-    switch name {
-    case "CUE A":
-        return .cueA
-    case "CUE B":
-        return .cueB
-    case "CUE C":
-        return .cueC
-    case "CUE D":
-        return .cueD
-    default:
-        return nil
     }
 }
