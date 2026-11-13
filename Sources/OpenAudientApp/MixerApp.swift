@@ -7,7 +7,9 @@ struct MixerApp: App {
     @StateObject private var controller = AudientController()
 
     var body: some Scene {
-        WindowGroup("Open Audient", id: "mixer") {
+        // A single-instance Window, so "Show Open Audient" focuses the existing
+        // mixer instead of opening another copy (WindowGroup creates one per call).
+        Window("Open Audient", id: "mixer") {
             ContentView()
                 .environmentObject(controller)
                 .frame(minWidth: 560, idealWidth: 980, minHeight: 520, idealHeight: 760)
