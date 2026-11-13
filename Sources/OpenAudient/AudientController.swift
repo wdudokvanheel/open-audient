@@ -156,10 +156,8 @@ public final class AudientController: ObservableObject {
 
         let inputs = model?.micInputs ?? 0
         let sourceCount = max(model?.peakMeterChannels ?? max(inputs, 1), (controllableMainMixSources.max() ?? 0) + 1)
-        let sourceLevels = sendSourceLevelsDB[.main] ?? Array(repeating: -60.0, count: sourceCount)
-        if sendSourceLevelsDB[.main] == nil {
-            sendSourceLevelsDB[.main] = sourceLevels
-        }
+        let sourceLevels = await readMainMixSourceLevels(sourceCount: sourceCount)
+        sendSourceLevelsDB[.main] = sourceLevels
         mainMixSourceLevelsDB = sourceLevels
         mutedMainMixSources = mutedMainMixSources.intersection(controllableMainMixSources)
 
@@ -195,16 +193,17 @@ public final class AudientController: ObservableObject {
         setMainMixSourceLevel(source: source, db: db)
     }
 
-    /// Set a DAW return pair's level in the main mix (writes both L and R sends).
+    /// Set a DAW return pair's level in the main mix while preserving L/R image.
     public func setDAWReturnLevel(pair: Int, db: Double) {
         if pair < dawReturnLevelsDB.count { dawReturnLevelsDB[pair] = db }
         guard let model else { return }
         let peakChannel = model.totalInputs + pair * 2
-        if let left = model.mixerSource(forPeakChannel: peakChannel) {
+        if let left = model.mixerSource(forPeakChannel: peakChannel),
+           let right = model.mixerSource(forPeakChannel: peakChannel + 1),
+           isControllableMainMixSource(right) {
+            setMainMixStereoPairLevel(pairStartingAt: left, db: db)
+        } else if let left = model.mixerSource(forPeakChannel: peakChannel) {
             setMainMixSourceLevel(source: left, db: db)
-        }
-        if let right = model.mixerSource(forPeakChannel: peakChannel + 1) {
-            setMainMixSourceLevel(source: right, db: db)
         }
     }
 
@@ -221,10 +220,7 @@ public final class AudientController: ObservableObject {
     }
 
     public func setMainMixStereoPairLevel(pairStartingAt source: Int, db: Double) {
-        setMainMixSourceLevel(source: source, db: db)
-        if isControllableMainMixSource(source + 1) {
-            setMainMixSourceLevel(source: source + 1, db: db)
-        }
+        setSendStereoPairLevel(pairStartingAt: source, bus: .main, db: db)
     }
 
     public func setSelectedSendBus(_ bus: Mixer.SendBus) {
@@ -259,10 +255,21 @@ public final class AudientController: ObservableObject {
     }
 
     public func setSendStereoPairLevel(pairStartingAt source: Int, bus: Mixer.SendBus, db: Double) {
-        setSendSourceLevel(source: source, bus: bus, db: db)
-        if canControlSendSource(source + 1, bus: bus) {
-            setSendSourceLevel(source: source + 1, bus: bus, db: db)
+        guard canControlSendSource(source, bus: bus) else { return }
+        guard canControlSendSource(source + 1, bus: bus) else {
+            setSendSourceLevel(source: source, bus: bus, db: db)
+            return
         }
+
+        setSendSourceLevelLocally(source: source, bus: bus, db: db)
+        setSendSourceLevelLocally(source: source + 1, bus: bus, db: db)
+        if bus == .main, db > -60 {
+            mutedMainMixSources.remove(source)
+            mutedMainMixSources.remove(source + 1)
+        }
+
+        writeSendSourceLevel(source: source, bus: bus, leftDB: db, rightDB: -128)
+        writeSendSourceLevel(source: source + 1, bus: bus, leftDB: -128, rightDB: db)
     }
 
     public func setMainMixSourceMuted(source: Int, muted: Bool) {
@@ -314,6 +321,9 @@ public final class AudientController: ObservableObject {
         Task {
             _ = try? await device.write(Routing.source(output: UInt8(output)), left)
             _ = try? await device.write(Routing.source(output: UInt8(output + 1)), right)
+        }
+        if source == .mainMix {
+            applyMainMixStereoPlaybackSends()
         }
     }
 
@@ -374,13 +384,17 @@ public final class AudientController: ObservableObject {
     }
 
     private func writeMainMixSourceLevel(source: Int, db: Double) {
-        guard isControllableMainMixSource(source) else { return }
+        writeSendSourceLevel(source: source, bus: .main, leftDB: db, rightDB: db)
+    }
+
+    private func writeSendSourceLevel(source: Int, bus: Mixer.SendBus, leftDB: Double, rightDB: Double) {
+        guard canControlSendSource(source, bus: bus) else { return }
         guard let device else { return }
-        let send = sendControls(source: source, bus: .main)
+        let send = sendControls(source: source, bus: bus)
         guard let send else { return }
         Task {
-            _ = try? await device.write(send.left, db)
-            _ = try? await device.write(send.right, db)
+            _ = try? await device.write(send.left, leftDB)
+            _ = try? await device.write(send.right, rightDB)
         }
     }
 
@@ -391,6 +405,37 @@ public final class AudientController: ObservableObject {
             sources[output] = try? await device.read(Routing.source(output: UInt8(output)))
         }
         return sources
+    }
+
+    private func readMainMixSourceLevels(sourceCount: Int) async -> [Double] {
+        guard sourceCount > 0 else { return [] }
+        guard let device else {
+            return sendSourceLevelsDB[.main] ?? Array(repeating: -60.0, count: sourceCount)
+        }
+
+        var levels = Array(repeating: -128.0, count: sourceCount)
+        for source in 0..<sourceCount where isControllableMainMixSource(source) {
+            guard let send = sendControls(source: source, bus: .main) else { continue }
+            let left = try? await device.read(send.left)
+            let right = try? await device.read(send.right)
+            levels[source] = max(left ?? -128, right ?? -128)
+        }
+        return levels
+    }
+
+    private func applyMainMixStereoPlaybackSends() {
+        guard let model else { return }
+        for pair in 0..<Mixer.dawReturnPairs {
+            let peakChannel = model.totalInputs + pair * 2
+            guard let left = model.mixerSource(forPeakChannel: peakChannel),
+                  let right = model.mixerSource(forPeakChannel: peakChannel + 1),
+                  canControlSendSource(left, bus: .main),
+                  canControlSendSource(right, bus: .main) else { continue }
+            setMainMixStereoPairLevel(
+                pairStartingAt: left,
+                db: max(mainMixSourceLevel(left), mainMixSourceLevel(right))
+            )
+        }
     }
 
     private func setOutputRouteSourceLocally(output: Int, value: UInt8) {
