@@ -31,7 +31,7 @@ struct ContentView: View {
                     ScrollView {
                         VStack(spacing: 18) {
                             monitorSection
-                            outputRoutingSection
+                            outputSection
                             peakMeterSections
                         }
                         .padding(.horizontal, 18)
@@ -239,7 +239,29 @@ struct ContentView: View {
         }
     }
 
-    private var outputRoutingSection: some View {
+    /// Output Routing with the Mix Buses meters beside it when the window is
+    /// wide enough for three bus meters per row; stacked otherwise.
+    private var outputSection: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 18) {
+                outputRoutingPanel(scrollable: false)
+                    .fixedSize(horizontal: true, vertical: false)
+                mixBusPanel
+                    .frame(minWidth: Self.mixBusMinWidth, idealWidth: Self.mixBusMinWidth, maxWidth: .infinity)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+
+            VStack(spacing: 18) {
+                outputRoutingPanel(scrollable: true)
+                mixBusPanel
+            }
+        }
+    }
+
+    /// Three 90 pt bus meter strips with 10 pt gaps, plus panel padding.
+    private static let mixBusMinWidth: CGFloat = 3 * 90 + 2 * 10 + 2 * 16
+
+    private func outputRoutingPanel(scrollable: Bool) -> some View {
         Panel {
             VStack(alignment: .leading, spacing: 14) {
                 SectionHeader(
@@ -250,54 +272,68 @@ struct ContentView: View {
 
                 if outputRoutingPairs.isEmpty {
                     EmptyMeterState()
-                } else {
+                } else if scrollable {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 8) {
-                                Text("Output")
-                                    .font(.caption.weight(.bold))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 94, alignment: .leading)
-
-                                ForEach(Routing.Source.allCases) { source in
-                                    Text(source.title)
-                                        .font(.caption2.weight(.bold))
-                                        .foregroundStyle(source.uiColor)
-                                        .multilineTextAlignment(.center)
-                                        .lineLimit(2)
-                                        .minimumScaleFactor(0.72)
-                                        .frame(width: 66, height: 30)
-                                }
-                            }
-
-                            ForEach(outputRoutingPairs) { pair in
-                                OutputRoutingRow(pair: pair)
-                                    .environmentObject(controller)
-                            }
-                        }
-                        .padding(.bottom, 2)
+                        outputRoutingGrid
                     }
+                } else {
+                    outputRoutingGrid
                 }
             }
+            .frame(maxHeight: .infinity, alignment: .top)
+        }
+    }
+
+    private var outputRoutingGrid: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text("Output")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 94, alignment: .leading)
+
+                ForEach(Routing.Source.allCases) { source in
+                    Text(source.title)
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(source.uiColor)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.72)
+                        .frame(width: routingColumnWidth, height: 30)
+                }
+            }
+
+            ForEach(outputRoutingPairs) { pair in
+                OutputRoutingRow(pair: pair)
+                    .environmentObject(controller)
+            }
+        }
+        .padding(.bottom, 2)
+    }
+
+    private var mixBusPanel: some View {
+        Panel {
+            VStack(alignment: .leading, spacing: 12) {
+                SectionHeader(title: "Mix Buses", detail: nil, count: "\(mixBusPairs.count) pairs")
+
+                if mixBusPairs.isEmpty {
+                    EmptyMeterState()
+                } else {
+                    FlowLayout(spacing: 10) {
+                        ForEach(mixBusPairs) { pair in
+                            MeterPairStrip(pair: pair, meters: controller.meters)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .frame(maxHeight: .infinity, alignment: .top)
         }
     }
 
     private var peakMeterSections: some View {
         VStack(spacing: 18) {
             cueSendFaderPanel
-            groupedMeterPanel(
-                title: "Internal Peaks",
-                detail: nil,
-                channels: internalPeakChannels,
-                stereoTitle: internalPeakPairTitle
-            )
-            groupedMeterPanel(
-                title: "Mix Buses",
-                detail: nil,
-                channels: busMeterChannels,
-                stereoTitle: { busMeterBus(pair: $0)?.longTitle.uppercased() ?? "BUS \($0 + 1)" },
-                pairTint: { busMeterBus(pair: $0)?.uiColor }
-            )
 
             if !unmappedMeterChannels.isEmpty {
                 meterPanel(
@@ -386,26 +422,6 @@ struct ContentView: View {
                 SectionHeader(title: title, detail: detail, count: "\(channels.count) channels")
 
                 meterStripScroller(channels: channels)
-            }
-        }
-    }
-
-    private func groupedMeterPanel(
-        title: String,
-        detail: String? = nil,
-        channels: [MeterChannel],
-        stereoTitle: @escaping (Int) -> String,
-        pairTint: @escaping (Int) -> Color? = { _ in nil }
-    ) -> some View {
-        Panel {
-            VStack(alignment: .leading, spacing: 12) {
-                SectionHeader(
-                    title: title,
-                    detail: detail,
-                    count: "\(stereoPairs(from: channels, title: stereoTitle, tint: pairTint).count) pairs"
-                )
-
-                meterPairScroller(channels: channels, stereoTitle: stereoTitle, pairTint: pairTint)
             }
         }
     }
@@ -506,13 +522,6 @@ struct ContentView: View {
         }
     }
 
-    private var internalPeakChannels: [MeterChannel] {
-        guard let model = controller.model else { return [] }
-        let start = internalPeakStart(for: model)
-        guard start < displayedPeakCount else { return [] }
-        return meterChannels(in: start..<displayedPeakCount) { index in "PEAK \(index + 1)" }
-    }
-
     private var displayedDAWPlaybackChannels: Int { 4 }
 
     private var displayedPeakCount: Int {
@@ -530,6 +539,14 @@ struct ContentView: View {
             let bus = busMeterBus(pair: index / 2)?.longTitle.uppercased() ?? "BUS \(index / 2 + 1)"
             return MeterChannel(index: index, title: "\(bus) \(index.isMultiple(of: 2) ? "L" : "R")", bank: .buses)
         }
+    }
+
+    private var mixBusPairs: [MeterChannelPair] {
+        stereoPairs(
+            from: busMeterChannels,
+            title: { busMeterBus(pair: $0)?.longTitle.uppercased() ?? "BUS \($0 + 1)" },
+            tint: { busMeterBus(pair: $0)?.uiColor }
+        )
     }
 
     /// Bus meter pairs follow `Mixer.SendBus` order (see `Meters.busOffset`).
@@ -591,17 +608,6 @@ struct ContentView: View {
 
     private func digitalOutputNumber(forOutput index: Int, model: DeviceModel) -> Int {
         index - model.lineOutputs - model.headphoneOutputs + 1
-    }
-
-    private func internalPeakStart(for model: DeviceModel) -> Int {
-        min(model.totalInputs + displayedDAWPlaybackChannels, displayedPeakCount)
-    }
-
-    private func internalPeakPairTitle(at pair: Int) -> String {
-        guard let model = controller.model else { return "PEAK \(pair * 2 + 1)+\(pair * 2 + 2)" }
-        let left = internalPeakStart(for: model) + pair * 2
-        let right = left + 1
-        return "PEAK \(left + 1)+\(right + 1)"
     }
 
     private func meterChannels(in range: Range<Int>, controlled: (Int) -> Bool = { _ in false }, title: (Int) -> String) -> [MeterChannel] {
@@ -822,6 +828,67 @@ private enum MeterBank: Int {
     case buses
 }
 
+/// Width of one routing-source column (header label and its buttons).
+private let routingColumnWidth: CGFloat = 58
+
+/// Lays children out left to right, wrapping to a new row when the next one
+/// would exceed the proposed width. Rows are evened out (3+2 rather than 4+1)
+/// when that doesn't need an extra row.
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 10
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = rows(for: subviews, maxWidth: proposal.width ?? .infinity)
+        let height = rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(rows.count - 1, 0))
+        return CGSize(width: rows.map(\.width).max() ?? 0, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in rows(for: subviews, maxWidth: bounds.width) {
+            var x = bounds.minX
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private struct Row {
+        var indices: [Int] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func rows(for subviews: Subviews, maxWidth: CGFloat) -> [Row] {
+        let greedy = rows(for: subviews, maxWidth: maxWidth, maxPerRow: .max)
+        guard greedy.count > 1 else { return greedy }
+        let perRow = Int((Double(subviews.count) / Double(greedy.count)).rounded(.up))
+        let balanced = rows(for: subviews, maxWidth: maxWidth, maxPerRow: perRow)
+        return balanced.count <= greedy.count ? balanced : greedy
+    }
+
+    private func rows(for subviews: Subviews, maxWidth: CGFloat, maxPerRow: Int) -> [Row] {
+        var rows: [Row] = []
+        var row = Row()
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let full = row.indices.count >= maxPerRow || row.width + spacing + size.width > maxWidth
+            if !row.indices.isEmpty, full {
+                rows.append(row)
+                row = Row()
+            }
+            row.width += (row.indices.isEmpty ? 0 : spacing) + size.width
+            row.height = max(row.height, size.height)
+            row.indices.append(index)
+        }
+        if !row.indices.isEmpty { rows.append(row) }
+        return rows
+    }
+}
+
 private struct OutputRoutingPair: Identifiable {
     let id: Int
     let leftOutput: Int
@@ -892,7 +959,7 @@ private struct RoutingSourceButton: View {
                         .frame(width: 6, height: 6)
                 }
             }
-            .frame(width: 66, height: 28)
+            .frame(width: routingColumnWidth, height: 28)
             .background(isSelected ? Color.white.opacity(0.045) : Color.clear, in: RoundedRectangle(cornerRadius: 5))
         }
         .buttonStyle(.plain)
