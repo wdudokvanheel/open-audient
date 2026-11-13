@@ -168,6 +168,16 @@ final class MappingTests: XCTestCase {
         XCTAssertEqual(Preamp.pad(input: 3).request.wValue, 0x0C03, "pad selector 0x0c, channel 3")
     }
 
+    func testID44RoutingCoversAllTwentyFourOutputs() {
+        // Routing channels 0x00…0x17 answer on hardware: 4 line, 4 HP, 16 ADAT.
+        let model = DeviceModel.iD44
+        XCTAssertEqual(model.headphoneOutputs, 4)
+        XCTAssertEqual(model.totalOutputs, 24)
+        XCTAssertEqual(Routing.source(output: UInt8(model.totalOutputs - 1)).request.channel, 0x17)
+        // Models without separately routed headphones keep line + digital.
+        XCTAssertEqual(DeviceModel.iD22.totalOutputs, 12)
+    }
+
     func testHeadphoneFeatureUnitAddressing() {
         XCTAssertEqual(Headphones.leftVolume.request.unitID, 0x0A)
         XCTAssertEqual(Headphones.leftVolume.request.wValue, 0x0203, "VOLUME selector, channel 3")

@@ -114,11 +114,15 @@ above, raising confidence in the whole map.
 | Function | unit | selector | channel | len | encoding |
 |----------|------|----------|---------|-----|----------|
 | Mixer crosspoint level | `0x3c` | `0x01` | mixer channel | 2 | Q8.8 dB (`0x8000` = −128/min) |
-| Output route source | `0x33` | `0x06` | output 0…5 | 1 | source ID byte |
+| Output route source | `0x33` | `0x06` | output 0…23 | 1 | source ID byte |
 | Output FU volume | `0x0a` | `0x02` | 3, 4 | 2 | Q8.8 dB |
 | Output FU mute | `0x0a` | `0x01` | 3, 4 | 1 | bool |
 
 Notes:
+- The iD44 routing unit has 24 outputs (`0x00`…`0x17`): line 1–4, HP 1 L/R,
+  HP 2 L/R, ADAT 1–16. **Do not read past the last output:** `GET_CUR` on
+  output `0x18` times out and the device stops answering every control request
+  until it is power-cycled.
 - Mixer input fader L/R map to mixer channels `input×6` and `input×6+1` (MixiD
   `set_channel_volume`). A live read showed channels 0/1 at −3.6 dB, 8/9 active,
   the rest at −128 dB (muted) — i.e. real mixer state.

@@ -95,8 +95,12 @@ public enum Routing {
         }
     }
 
-    /// The source feeding a given output channel (0…5 on the iD44: Main L/R,
-    /// then headphones/alt pairs). Value is a device source ID.
+    /// The source feeding a given output channel. Value is a device source ID.
+    ///
+    /// On the iD44 outputs are `0x00`…`0x17`: line 1–4, HP 1 L/R, HP 2 L/R,
+    /// then ADAT 1–16 (`DeviceModel.totalOutputs`). Stay within that range:
+    /// a `GET_CUR` on output `0x18` times out and leaves the device's control
+    /// endpoint unresponsive until it is power-cycled.
     public static func source(output: UInt8) -> ByteControl {
         ByteControl(
             name: "Route Source[\(output)]",

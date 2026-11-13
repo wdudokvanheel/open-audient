@@ -662,34 +662,19 @@ struct ContentView: View {
     }
 
     private func headphonePairName(leftIndex: Int, model: DeviceModel) -> String? {
-        guard hasDedicatedHeadphoneOutputLabels(model) else { return nil }
-        switch leftIndex {
-        case model.lineOutputs:
-            return "HP 1"
-        case model.lineOutputs + 2:
-            return "HP 2"
-        default:
-            return nil
-        }
+        let headphoneOutputs = model.lineOutputs..<(model.lineOutputs + model.headphoneOutputs)
+        guard headphoneOutputs.contains(leftIndex) else { return nil }
+        return "HP \((leftIndex - model.lineOutputs) / 2 + 1)"
     }
 
     private func headphoneOutputTitle(at index: Int, model: DeviceModel) -> String? {
-        guard hasDedicatedHeadphoneOutputLabels(model) else { return nil }
         let left = index - index % 2
         guard let pairName = headphonePairName(leftIndex: left, model: model) else { return nil }
         return "\(pairName) \(index.isMultiple(of: 2) ? "L" : "R")"
     }
 
     private func digitalOutputNumber(forOutput index: Int, model: DeviceModel) -> Int {
-        index - model.lineOutputs - headphoneOutputChannels(for: model) + 1
-    }
-
-    private func headphoneOutputChannels(for model: DeviceModel) -> Int {
-        hasDedicatedHeadphoneOutputLabels(model) ? 4 : 0
-    }
-
-    private func hasDedicatedHeadphoneOutputLabels(_ model: DeviceModel) -> Bool {
-        model.productID == DeviceModel.iD44.productID || model.productID == DeviceModel.iD44mkII.productID
+        index - model.lineOutputs - model.headphoneOutputs + 1
     }
 
     private func internalPeakStart(for model: DeviceModel) -> Int {

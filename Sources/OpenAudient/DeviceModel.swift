@@ -13,6 +13,9 @@ public struct DeviceModel: Sendable, Equatable, Identifiable {
     public let digitalInputs: Int
     /// Analogue line outputs.
     public let lineOutputs: Int
+    /// Headphone output channels that occupy their own routing slots, placed
+    /// between the line and digital outputs (iD44: HP 1 L/R, HP 2 L/R).
+    public let headphoneOutputs: Int
     /// Digital outputs.
     public let digitalOutputs: Int
     /// Insert points.
@@ -23,7 +26,9 @@ public struct DeviceModel: Sendable, Equatable, Identifiable {
     public var id: Int { productID }
     public var identifier: USBIdentifier { USBIdentifier(vendorID: 0x2708, productID: productID) }
     public var totalInputs: Int { micInputs + digitalInputs }
-    public var totalOutputs: Int { lineOutputs + digitalOutputs }
+    /// Routable output channels: line, then headphone, then digital outputs.
+    /// On the iD44 this is 24 (routing channels `0x00`…`0x17`).
+    public var totalOutputs: Int { lineOutputs + headphoneOutputs + digitalOutputs }
     /// Peak meter slots exposed by the mixer memory block: hardware inputs
     /// followed by DAW playback channels.
     public var peakMeterChannels: Int { totalInputs + dawPlaybackChannels }
@@ -83,7 +88,7 @@ public struct DeviceModel: Sendable, Equatable, Identifiable {
     public init(
         name: String, productID: Int,
         micInputs: Int, digitalInputs: Int,
-        lineOutputs: Int, digitalOutputs: Int,
+        lineOutputs: Int, headphoneOutputs: Int = 0, digitalOutputs: Int,
         inserts: Int = 0, isVerified: Bool = false
     ) {
         self.name = name
@@ -91,6 +96,7 @@ public struct DeviceModel: Sendable, Equatable, Identifiable {
         self.micInputs = micInputs
         self.digitalInputs = digitalInputs
         self.lineOutputs = lineOutputs
+        self.headphoneOutputs = headphoneOutputs
         self.digitalOutputs = digitalOutputs
         self.inserts = inserts
         self.isVerified = isVerified
@@ -104,8 +110,8 @@ extension DeviceModel {
     public static let iD14mkII = DeviceModel(name: "iD14 MkII", productID: 0x0008, micInputs: 2, digitalInputs: 8, lineOutputs: 4, digitalOutputs: 0)
     public static let iD22    = DeviceModel(name: "iD22",      productID: 0x0001, micInputs: 2, digitalInputs: 8,  lineOutputs: 4, digitalOutputs: 8,  inserts: 2)
     public static let iD24    = DeviceModel(name: "iD24",      productID: 0x000D, micInputs: 2, digitalInputs: 10, lineOutputs: 4, digitalOutputs: 14, inserts: 2)
-    public static let iD44    = DeviceModel(name: "iD44",      productID: 0x0005, micInputs: 4, digitalInputs: 16, lineOutputs: 4, digitalOutputs: 16, inserts: 2, isVerified: true)
-    public static let iD44mkII = DeviceModel(name: "iD44 MkII", productID: 0x000B, micInputs: 4, digitalInputs: 16, lineOutputs: 4, digitalOutputs: 16, inserts: 2)
+    public static let iD44    = DeviceModel(name: "iD44",      productID: 0x0005, micInputs: 4, digitalInputs: 16, lineOutputs: 4, headphoneOutputs: 4, digitalOutputs: 16, inserts: 2, isVerified: true)
+    public static let iD44mkII = DeviceModel(name: "iD44 MkII", productID: 0x000B, micInputs: 4, digitalInputs: 16, lineOutputs: 4, headphoneOutputs: 4, digitalOutputs: 16, inserts: 2)
     public static let iD48    = DeviceModel(name: "iD48",      productID: 0x0012, micInputs: 8, digitalInputs: 16, lineOutputs: 4, digitalOutputs: 16, inserts: 8)
 
     /// All known iD models.
